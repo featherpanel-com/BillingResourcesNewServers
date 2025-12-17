@@ -35,8 +35,24 @@ const allRealms = ref<Array<{ id: number; name: string }>>([]);
 const allSpells = ref<Array<{ id: number; name: string; realm_id: number }>>(
   []
 );
+const allUsers = ref<Array<{ id: number; username: string; email: string }>>(
+  []
+);
 
 const loadingOptions = ref(false);
+
+// Resource permission settings (per-resource)
+const resourcePermissions = ref<{
+  location: Record<number, { mode: "open" | "restricted"; error?: string }>;
+  node: Record<number, { mode: "open" | "restricted"; error?: string }>;
+  realm: Record<number, { mode: "open" | "restricted"; error?: string }>;
+  spell: Record<number, { mode: "open" | "restricted"; error?: string }>;
+}>({
+  location: {},
+  node: {},
+  realm: {},
+  spell: {},
+});
 
 // Realm filter for spells
 const selectedRealmFilter = ref<number | null>(null);
@@ -44,10 +60,23 @@ const selectedRealmFilter = ref<number | null>(null);
 // Form state
 const formSettings = ref<PluginSettings>({
   user_creation_enabled: false,
+  user_restriction_mode: "all",
+  allowed_users: [],
   allowed_locations: [],
   allowed_nodes: [],
   allowed_realms: [],
   allowed_spells: [],
+  minimum_memory: 128,
+  minimum_cpu: 0,
+  minimum_disk: 128,
+  permission_mode_location: "open",
+  permission_mode_node: "open",
+  permission_mode_realm: "open",
+  permission_mode_spell: "open",
+  default_error_location: "You do not have permission to use this location",
+  default_error_node: "You do not have permission to use this node",
+  default_error_realm: "You do not have permission to use this realm",
+  default_error_spell: "You do not have permission to use this spell",
 });
 
 // Filtered spells based on selected realm
@@ -72,20 +101,95 @@ const loadSettings = async () => {
   }
 };
 
+const loadResourcePermissions = async () => {
+  try {
+    const [locationsPerms, nodesPerms, realmsPerms, spellsPerms] =
+      await Promise.all([
+        axios
+          .get(
+            "/api/admin/billingresourcesnewservers/resource-permissions/location"
+          )
+          .catch(() => ({ data: { data: [] } })),
+        axios
+          .get(
+            "/api/admin/billingresourcesnewservers/resource-permissions/node"
+          )
+          .catch(() => ({ data: { data: [] } })),
+        axios
+          .get(
+            "/api/admin/billingresourcesnewservers/resource-permissions/realm"
+          )
+          .catch(() => ({ data: { data: [] } })),
+        axios
+          .get(
+            "/api/admin/billingresourcesnewservers/resource-permissions/spell"
+          )
+          .catch(() => ({ data: { data: [] } })),
+      ]);
+
+    // Initialize permission maps
+    resourcePermissions.value.location = {};
+    resourcePermissions.value.node = {};
+    resourcePermissions.value.realm = {};
+    resourcePermissions.value.spell = {};
+
+    // Process location permissions
+    (locationsPerms.data?.data || []).forEach((perm: any) => {
+      resourcePermissions.value.location[perm.resource_id] = {
+        mode: perm.permission_mode || "open",
+        error: perm.default_error_message || undefined,
+      };
+    });
+
+    // Process node permissions
+    (nodesPerms.data?.data || []).forEach((perm: any) => {
+      resourcePermissions.value.node[perm.resource_id] = {
+        mode: perm.permission_mode || "open",
+        error: perm.default_error_message || undefined,
+      };
+    });
+
+    // Process realm permissions
+    (realmsPerms.data?.data || []).forEach((perm: any) => {
+      resourcePermissions.value.realm[perm.resource_id] = {
+        mode: perm.permission_mode || "open",
+        error: perm.default_error_message || undefined,
+      };
+    });
+
+    // Process spell permissions
+    (spellsPerms.data?.data || []).forEach((perm: any) => {
+      resourcePermissions.value.spell[perm.resource_id] = {
+        mode: perm.permission_mode || "open",
+        error: perm.default_error_message || undefined,
+      };
+    });
+  } catch (err) {
+    console.error("Failed to load resource permissions:", err);
+    // Don't show error toast, just use defaults
+  }
+};
+
 const loadOptions = async () => {
   loadingOptions.value = true;
   try {
-    const [locationsRes, nodesRes, realmsRes, spellsRes] = await Promise.all([
-      axios.get("/api/admin/locations", { params: { limit: 1000 } }),
-      axios.get("/api/admin/nodes", { params: { limit: 1000 } }),
-      axios.get("/api/admin/realms", { params: { limit: 1000 } }),
-      axios.get("/api/admin/spells", { params: { limit: 1000 } }),
-    ]);
+    const [locationsRes, nodesRes, realmsRes, spellsRes, usersRes] =
+      await Promise.all([
+        axios.get("/api/admin/locations", { params: { limit: 1000 } }),
+        axios.get("/api/admin/nodes", { params: { limit: 1000 } }),
+        axios.get("/api/admin/realms", { params: { limit: 1000 } }),
+        axios.get("/api/admin/spells", { params: { limit: 1000 } }),
+        axios.get("/api/admin/users", { params: { limit: 1000 } }),
+      ]);
 
     allLocations.value = locationsRes.data?.data?.locations || [];
     allNodes.value = nodesRes.data?.data?.nodes || [];
     allRealms.value = realmsRes.data?.data?.realms || [];
     allSpells.value = spellsRes.data?.data?.spells || [];
+    allUsers.value = usersRes.data?.data?.users || [];
+
+    // Load resource permissions after resources are loaded
+    await loadResourcePermissions();
   } catch (err) {
     const errorMsg =
       err instanceof Error ? err.message : "Failed to load options";
@@ -93,6 +197,48 @@ const loadOptions = async () => {
     toast.error(axiosError?.response?.data?.message || errorMsg);
   } finally {
     loadingOptions.value = false;
+  }
+};
+
+const getResourcePermissionMode = (
+  resourceType: "location" | "node" | "realm" | "spell",
+  resourceId: number
+): "open" | "restricted" => {
+  return resourcePermissions.value[resourceType]?.[resourceId]?.mode || "open";
+};
+
+const setResourcePermissionMode = async (
+  resourceType: "location" | "node" | "realm" | "spell",
+  resourceId: number,
+  mode: "open" | "restricted",
+  errorMessage?: string
+) => {
+  try {
+    await axios.post(
+      "/api/admin/billingresourcesnewservers/resource-permissions",
+      {
+        resource_type: resourceType,
+        resource_id: resourceId,
+        permission_mode: mode,
+        default_error_message: errorMessage || null,
+      }
+    );
+
+    // Update local state
+    if (!resourcePermissions.value[resourceType]) {
+      resourcePermissions.value[resourceType] = {};
+    }
+    resourcePermissions.value[resourceType][resourceId] = {
+      mode,
+      error: errorMessage,
+    };
+
+    toast.success(`${resourceType} permission updated`);
+  } catch (err) {
+    const axiosError = err as AxiosError<{ error_message?: string }>;
+    toast.error(
+      axiosError?.response?.data?.error_message || "Failed to update permission"
+    );
   }
 };
 
@@ -243,6 +389,114 @@ onMounted(async () => {
           </div>
         </Card>
 
+        <!-- User Restrictions -->
+        <Card class="p-6">
+          <div class="mb-4">
+            <Label class="text-base font-semibold">User Access Control</Label>
+            <p class="text-sm text-muted-foreground mt-1">
+              Control whether server creation requires permissions or is open to
+              everyone
+            </p>
+          </div>
+          <div class="space-y-4">
+            <div>
+              <Label for="user_restriction_mode">Access Mode</Label>
+              <div class="flex items-center space-x-4 mt-2">
+                <label class="flex items-center">
+                  <input
+                    type="radio"
+                    value="all"
+                    v-model="formSettings.user_restriction_mode"
+                    class="h-4 w-4 text-primary border-gray-300 focus:ring-primary"
+                  />
+                  <span class="ml-2 text-sm">Open to Everyone</span>
+                </label>
+                <label class="flex items-center">
+                  <input
+                    type="radio"
+                    value="specific"
+                    v-model="formSettings.user_restriction_mode"
+                    class="h-4 w-4 text-primary border-gray-300 focus:ring-primary"
+                  />
+                  <span class="ml-2 text-sm">Permission Required</span>
+                </label>
+              </div>
+              <p class="text-xs text-muted-foreground mt-1">
+                {{
+                  formSettings.user_restriction_mode === "all"
+                    ? "All authenticated users can create servers (subject to resource-level permissions)"
+                    : "Only users with permissions (individual or group) can create servers"
+                }}
+              </p>
+            </div>
+
+            <div
+              v-if="formSettings.user_restriction_mode === 'specific'"
+              class="mt-4"
+            >
+              <p class="text-sm text-muted-foreground mb-2">
+                When "Permission Required" is enabled, users must have
+                individual permissions or be in a group with permissions to
+                create servers. Use the "User Permissions" page to assign
+                permissions to users or groups.
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <!-- Minimum Resource Requirements -->
+        <Card class="p-6">
+          <div class="mb-4">
+            <Label class="text-base font-semibold"
+              >Minimum Resource Requirements</Label
+            >
+            <p class="text-sm text-muted-foreground mt-1">
+              Set the minimum resources required for users to create servers
+            </p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Label for="minimum_memory">Minimum Memory (MB)</Label>
+              <input
+                id="minimum_memory"
+                v-model.number="formSettings.minimum_memory"
+                type="number"
+                min="128"
+                class="mt-2 w-full px-3 py-2 border rounded-md"
+              />
+              <p class="text-xs text-muted-foreground mt-1">
+                Minimum memory required (default: 128 MB)
+              </p>
+            </div>
+            <div>
+              <Label for="minimum_cpu">Minimum CPU (%)</Label>
+              <input
+                id="minimum_cpu"
+                v-model.number="formSettings.minimum_cpu"
+                type="number"
+                min="0"
+                class="mt-2 w-full px-3 py-2 border rounded-md"
+              />
+              <p class="text-xs text-muted-foreground mt-1">
+                Minimum CPU required (default: 0%)
+              </p>
+            </div>
+            <div>
+              <Label for="minimum_disk">Minimum Disk (MB)</Label>
+              <input
+                id="minimum_disk"
+                v-model.number="formSettings.minimum_disk"
+                type="number"
+                min="128"
+                class="mt-2 w-full px-3 py-2 border rounded-md"
+              />
+              <p class="text-xs text-muted-foreground mt-1">
+                Minimum disk required (default: 128 MB)
+              </p>
+            </div>
+          </div>
+        </Card>
+
         <!-- Allowed Locations -->
         <Card class="p-6">
           <div class="mb-4">
@@ -288,24 +542,76 @@ onMounted(async () => {
             <div
               v-for="location in allLocations"
               :key="location.id"
-              @click="toggleLocation(location.id)"
-              class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+              class="p-3 border rounded-lg"
               :class="{
                 'border-primary bg-primary/10': isLocationSelected(location.id),
               }"
             >
+              <div class="flex items-center justify-between mb-2">
+                <div
+                  class="flex items-center gap-2 flex-1 cursor-pointer"
+                  @click="toggleLocation(location.id)"
+                >
+                  <div
+                    class="flex h-5 w-5 items-center justify-center rounded border"
+                    :class="{
+                      'bg-primary border-primary': isLocationSelected(
+                        location.id
+                      ),
+                    }"
+                  >
+                    <Check
+                      v-if="isLocationSelected(location.id)"
+                      class="h-4 w-4 text-primary-foreground"
+                    />
+                  </div>
+                  <span class="font-medium">{{ location.name }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <select
+                    :value="getResourcePermissionMode('location', location.id)"
+                    @change="
+                      setResourcePermissionMode(
+                        'location',
+                        location.id,
+                        ($event.target as HTMLSelectElement).value as
+                          | 'open'
+                          | 'restricted'
+                      )
+                    "
+                    class="text-xs px-2 py-1 border rounded bg-background"
+                    @click.stop
+                  >
+                    <option value="open">Open</option>
+                    <option value="restricted">Restricted</option>
+                  </select>
+                </div>
+              </div>
               <div
-                class="flex h-5 w-5 items-center justify-center rounded border"
-                :class="{
-                  'bg-primary border-primary': isLocationSelected(location.id),
-                }"
+                v-if="
+                  getResourcePermissionMode('location', location.id) ===
+                  'restricted'
+                "
+                class="mt-2"
               >
-                <Check
-                  v-if="isLocationSelected(location.id)"
-                  class="h-4 w-4 text-primary-foreground"
+                <input
+                  :value="
+                    resourcePermissions.location?.[location.id]?.error || ''
+                  "
+                  @input="
+                    setResourcePermissionMode(
+                      'location',
+                      location.id,
+                      'restricted',
+                      ($event.target as HTMLInputElement).value
+                    )
+                  "
+                  type="text"
+                  placeholder="Default error message"
+                  class="w-full text-xs px-2 py-1 border rounded bg-background"
+                  @click.stop
                 />
               </div>
-              <span class="font-medium">{{ location.name }}</span>
             </div>
           </div>
         </Card>
@@ -354,24 +660,71 @@ onMounted(async () => {
             <div
               v-for="node in allNodes"
               :key="node.id"
-              @click="toggleNode(node.id)"
-              class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+              class="p-3 border rounded-lg"
               :class="{
                 'border-primary bg-primary/10': isNodeSelected(node.id),
               }"
             >
+              <div class="flex items-center justify-between mb-2">
+                <div
+                  class="flex items-center gap-2 flex-1 cursor-pointer"
+                  @click="toggleNode(node.id)"
+                >
+                  <div
+                    class="flex h-5 w-5 items-center justify-center rounded border"
+                    :class="{
+                      'bg-primary border-primary': isNodeSelected(node.id),
+                    }"
+                  >
+                    <Check
+                      v-if="isNodeSelected(node.id)"
+                      class="h-4 w-4 text-primary-foreground"
+                    />
+                  </div>
+                  <span class="font-medium">{{ node.name }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <select
+                    :value="getResourcePermissionMode('node', node.id)"
+                    @change="
+                      setResourcePermissionMode(
+                        'node',
+                        node.id,
+                        ($event.target as HTMLSelectElement).value as
+                          | 'open'
+                          | 'restricted'
+                      )
+                    "
+                    class="text-xs px-2 py-1 border rounded"
+                    @click.stop
+                  >
+                    <option value="open">Open</option>
+                    <option value="restricted">Restricted</option>
+                  </select>
+                </div>
+              </div>
               <div
-                class="flex h-5 w-5 items-center justify-center rounded border"
-                :class="{
-                  'bg-primary border-primary': isNodeSelected(node.id),
-                }"
+                v-if="
+                  getResourcePermissionMode('node', node.id) === 'restricted'
+                "
+                class="mt-2"
               >
-                <Check
-                  v-if="isNodeSelected(node.id)"
-                  class="h-4 w-4 text-primary-foreground"
+                <input
+                  :value="resourcePermissions.node?.[node.id]?.error || ''"
+                  @input="
+                    setResourcePermissionMode(
+                      'node',
+                      node.id,
+                      'restricted',
+                      ($event.target as HTMLInputElement).value
+                    )
+                  "
+                  type="text"
+                  placeholder="Default error message"
+                  class="w-full text-xs px-2 py-1 border rounded"
+                  @click.stop
                 />
               </div>
-              <span class="font-medium">{{ node.name }}</span>
             </div>
           </div>
         </Card>
@@ -421,24 +774,71 @@ onMounted(async () => {
             <div
               v-for="realm in allRealms"
               :key="realm.id"
-              @click="toggleRealm(realm.id)"
-              class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+              class="p-3 border rounded-lg"
               :class="{
                 'border-primary bg-primary/10': isRealmSelected(realm.id),
               }"
             >
+              <div class="flex items-center justify-between mb-2">
+                <div
+                  class="flex items-center gap-2 flex-1 cursor-pointer"
+                  @click="toggleRealm(realm.id)"
+                >
+                  <div
+                    class="flex h-5 w-5 items-center justify-center rounded border"
+                    :class="{
+                      'bg-primary border-primary': isRealmSelected(realm.id),
+                    }"
+                  >
+                    <Check
+                      v-if="isRealmSelected(realm.id)"
+                      class="h-4 w-4 text-primary-foreground"
+                    />
+                  </div>
+                  <span class="font-medium">{{ realm.name }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <select
+                    :value="getResourcePermissionMode('realm', realm.id)"
+                    @change="
+                      setResourcePermissionMode(
+                        'realm',
+                        realm.id,
+                        ($event.target as HTMLSelectElement).value as
+                          | 'open'
+                          | 'restricted'
+                      )
+                    "
+                    class="text-xs px-2 py-1 border rounded"
+                    @click.stop
+                  >
+                    <option value="open">Open</option>
+                    <option value="restricted">Restricted</option>
+                  </select>
+                </div>
+              </div>
               <div
-                class="flex h-5 w-5 items-center justify-center rounded border"
-                :class="{
-                  'bg-primary border-primary': isRealmSelected(realm.id),
-                }"
+                v-if="
+                  getResourcePermissionMode('realm', realm.id) === 'restricted'
+                "
+                class="mt-2"
               >
-                <Check
-                  v-if="isRealmSelected(realm.id)"
-                  class="h-4 w-4 text-primary-foreground"
+                <input
+                  :value="resourcePermissions.realm?.[realm.id]?.error || ''"
+                  @input="
+                    setResourcePermissionMode(
+                      'realm',
+                      realm.id,
+                      'restricted',
+                      ($event.target as HTMLInputElement).value
+                    )
+                  "
+                  type="text"
+                  placeholder="Default error message"
+                  class="w-full text-xs px-2 py-1 border rounded"
+                  @click.stop
                 />
               </div>
-              <span class="font-medium">{{ realm.name }}</span>
             </div>
           </div>
         </Card>
@@ -514,32 +914,271 @@ onMounted(async () => {
             <div
               v-for="spell in filteredSpells"
               :key="spell.id"
-              @click="toggleSpell(spell.id)"
-              class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+              class="p-3 border rounded-lg"
               :class="{
                 'border-primary bg-primary/10': isSpellSelected(spell.id),
               }"
             >
+              <div class="flex items-center justify-between mb-2">
+                <div
+                  class="flex items-center gap-2 flex-1 cursor-pointer"
+                  @click="toggleSpell(spell.id)"
+                >
+                  <div
+                    class="flex h-5 w-5 items-center justify-center rounded border"
+                    :class="{
+                      'bg-primary border-primary': isSpellSelected(spell.id),
+                    }"
+                  >
+                    <Check
+                      v-if="isSpellSelected(spell.id)"
+                      class="h-4 w-4 text-primary-foreground"
+                    />
+                  </div>
+                  <div class="flex-1">
+                    <span class="font-medium">{{ spell.name }}</span>
+                    <p class="text-xs text-muted-foreground">
+                      Realm:
+                      {{
+                        allRealms.find((r) => r.id === spell.realm_id)?.name ||
+                        "Unknown"
+                      }}
+                    </p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <select
+                    :value="getResourcePermissionMode('spell', spell.id)"
+                    @change="
+                      setResourcePermissionMode(
+                        'spell',
+                        spell.id,
+                        ($event.target as HTMLSelectElement).value as
+                          | 'open'
+                          | 'restricted'
+                      )
+                    "
+                    class="text-xs px-2 py-1 border rounded"
+                    @click.stop
+                  >
+                    <option value="open">Open</option>
+                    <option value="restricted">Restricted</option>
+                  </select>
+                </div>
+              </div>
               <div
-                class="flex h-5 w-5 items-center justify-center rounded border"
-                :class="{
-                  'bg-primary border-primary': isSpellSelected(spell.id),
-                }"
+                v-if="
+                  getResourcePermissionMode('spell', spell.id) === 'restricted'
+                "
+                class="mt-2"
               >
-                <Check
-                  v-if="isSpellSelected(spell.id)"
-                  class="h-4 w-4 text-primary-foreground"
+                <input
+                  :value="resourcePermissions.spell?.[spell.id]?.error || ''"
+                  @input="
+                    setResourcePermissionMode(
+                      'spell',
+                      spell.id,
+                      'restricted',
+                      ($event.target as HTMLInputElement).value
+                    )
+                  "
+                  type="text"
+                  placeholder="Default error message"
+                  class="w-full text-xs px-2 py-1 border rounded"
+                  @click.stop
                 />
               </div>
-              <div class="flex-1">
-                <span class="font-medium">{{ spell.name }}</span>
-                <p class="text-xs text-muted-foreground">
-                  Realm:
-                  {{
-                    allRealms.find((r) => r.id === spell.realm_id)?.name ||
-                    "Unknown"
-                  }}
-                </p>
+            </div>
+          </div>
+        </Card>
+
+        <!-- Permission Controls -->
+        <Card class="p-6">
+          <div class="mb-4">
+            <Label class="text-base font-semibold">Permission Controls</Label>
+            <p class="text-sm text-muted-foreground mt-1">
+              Control whether each resource type requires permissions or is open
+              to everyone
+            </p>
+          </div>
+          <div class="space-y-6">
+            <!-- Location Permission Mode -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                  <MapPin class="h-5 w-5" />
+                  <Label>Location Permission Mode</Label>
+                </div>
+                <div class="flex items-center space-x-4">
+                  <label class="flex items-center">
+                    <input
+                      type="radio"
+                      value="open"
+                      v-model="formSettings.permission_mode_location"
+                      class="h-4 w-4 text-primary border-gray-300 focus:ring-primary"
+                    />
+                    <span class="ml-2 text-sm">Open to Everyone</span>
+                  </label>
+                  <label class="flex items-center">
+                    <input
+                      type="radio"
+                      value="restricted"
+                      v-model="formSettings.permission_mode_location"
+                      class="h-4 w-4 text-primary border-gray-300 focus:ring-primary"
+                    />
+                    <span class="ml-2 text-sm">Permission Required</span>
+                  </label>
+                </div>
+              </div>
+              <div
+                v-if="formSettings.permission_mode_location === 'restricted'"
+                class="mt-2"
+              >
+                <Label for="default_error_location"
+                  >Default Error Message for Locations</Label
+                >
+                <input
+                  id="default_error_location"
+                  v-model="formSettings.default_error_location"
+                  type="text"
+                  placeholder="You do not have permission to use this location"
+                  class="mt-2 w-full px-3 py-2 border rounded-md"
+                />
+              </div>
+            </div>
+
+            <!-- Node Permission Mode -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                  <Network class="h-5 w-5" />
+                  <Label>Node Permission Mode</Label>
+                </div>
+                <div class="flex items-center space-x-4">
+                  <label class="flex items-center">
+                    <input
+                      type="radio"
+                      value="open"
+                      v-model="formSettings.permission_mode_node"
+                      class="h-4 w-4 text-primary border-gray-300 focus:ring-primary"
+                    />
+                    <span class="ml-2 text-sm">Open to Everyone</span>
+                  </label>
+                  <label class="flex items-center">
+                    <input
+                      type="radio"
+                      value="restricted"
+                      v-model="formSettings.permission_mode_node"
+                      class="h-4 w-4 text-primary border-gray-300 focus:ring-primary"
+                    />
+                    <span class="ml-2 text-sm">Permission Required</span>
+                  </label>
+                </div>
+              </div>
+              <div
+                v-if="formSettings.permission_mode_node === 'restricted'"
+                class="mt-2"
+              >
+                <Label for="default_error_node"
+                  >Default Error Message for Nodes</Label
+                >
+                <input
+                  id="default_error_node"
+                  v-model="formSettings.default_error_node"
+                  type="text"
+                  placeholder="You do not have permission to use this node"
+                  class="mt-2 w-full px-3 py-2 border rounded-md"
+                />
+              </div>
+            </div>
+
+            <!-- Realm Permission Mode -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                  <Box class="h-5 w-5" />
+                  <Label>Realm Permission Mode</Label>
+                </div>
+                <div class="flex items-center space-x-4">
+                  <label class="flex items-center">
+                    <input
+                      type="radio"
+                      value="open"
+                      v-model="formSettings.permission_mode_realm"
+                      class="h-4 w-4 text-primary border-gray-300 focus:ring-primary"
+                    />
+                    <span class="ml-2 text-sm">Open to Everyone</span>
+                  </label>
+                  <label class="flex items-center">
+                    <input
+                      type="radio"
+                      value="restricted"
+                      v-model="formSettings.permission_mode_realm"
+                      class="h-4 w-4 text-primary border-gray-300 focus:ring-primary"
+                    />
+                    <span class="ml-2 text-sm">Permission Required</span>
+                  </label>
+                </div>
+              </div>
+              <div
+                v-if="formSettings.permission_mode_realm === 'restricted'"
+                class="mt-2"
+              >
+                <Label for="default_error_realm"
+                  >Default Error Message for Realms</Label
+                >
+                <input
+                  id="default_error_realm"
+                  v-model="formSettings.default_error_realm"
+                  type="text"
+                  placeholder="You do not have permission to use this realm"
+                  class="mt-2 w-full px-3 py-2 border rounded-md"
+                />
+              </div>
+            </div>
+
+            <!-- Spell Permission Mode -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                  <Sparkles class="h-5 w-5" />
+                  <Label>Spell Permission Mode</Label>
+                </div>
+                <div class="flex items-center space-x-4">
+                  <label class="flex items-center">
+                    <input
+                      type="radio"
+                      value="open"
+                      v-model="formSettings.permission_mode_spell"
+                      class="h-4 w-4 text-primary border-gray-300 focus:ring-primary"
+                    />
+                    <span class="ml-2 text-sm">Open to Everyone</span>
+                  </label>
+                  <label class="flex items-center">
+                    <input
+                      type="radio"
+                      value="restricted"
+                      v-model="formSettings.permission_mode_spell"
+                      class="h-4 w-4 text-primary border-gray-300 focus:ring-primary"
+                    />
+                    <span class="ml-2 text-sm">Permission Required</span>
+                  </label>
+                </div>
+              </div>
+              <div
+                v-if="formSettings.permission_mode_spell === 'restricted'"
+                class="mt-2"
+              >
+                <Label for="default_error_spell"
+                  >Default Error Message for Spells</Label
+                >
+                <input
+                  id="default_error_spell"
+                  v-model="formSettings.default_error_spell"
+                  type="text"
+                  placeholder="You do not have permission to use this spell"
+                  class="mt-2 w-full px-3 py-2 border rounded-md"
+                />
               </div>
             </div>
           </div>

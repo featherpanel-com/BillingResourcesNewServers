@@ -30,12 +30,12 @@
 
 namespace App\Addons\billingresourcesnewservers\Helpers;
 
-use App\Addons\billingresources\Helpers\ResourcesHelper;
 use App\Chat\Node;
-use App\Chat\Location;
 use App\Chat\Realm;
 use App\Chat\Spell;
+use App\Chat\Location;
 use App\Chat\Allocation;
+use App\Addons\billingresources\Helpers\ResourcesHelper;
 
 /**
  * Helper for validating server creation and checking resources.
@@ -61,8 +61,17 @@ class ServerCreationHelper
             ];
         }
 
-        // Validate required fields
-        $requiredFields = ['node_id', 'realms_id', 'spell_id', 'allocation_id', 'name', 'memory', 'cpu', 'disk'];
+        // Check if user is allowed to create servers
+        if (!SettingsHelper::isUserAllowed($userId)) {
+            return [
+                'valid' => false,
+                'error' => 'You do not have permission to create servers',
+                'error_code' => 'USER_NOT_ALLOWED',
+            ];
+        }
+
+        // Validate required fields (allocation_id is optional - will be auto-selected)
+        $requiredFields = ['node_id', 'realms_id', 'spell_id', 'name', 'memory', 'cpu', 'disk'];
         foreach ($requiredFields as $field) {
             if (!isset($serverData[$field])) {
                 return [
@@ -84,10 +93,12 @@ class ServerCreationHelper
             ];
         }
 
-        if (!SettingsHelper::isNodeAllowed($nodeId)) {
+        // Check user-specific node permission
+        $nodePermission = SettingsHelper::checkUserResourcePermission($userId, 'node', $nodeId);
+        if (!$nodePermission['allowed']) {
             return [
                 'valid' => false,
-                'error' => 'This node is not available for user server creation',
+                'error' => $nodePermission['custom_error'] ?? 'This node is not available for you',
                 'error_code' => 'NODE_NOT_ALLOWED',
             ];
         }
@@ -95,10 +106,12 @@ class ServerCreationHelper
         // Validate location if node has one
         if (isset($node['location_id']) && $node['location_id'] > 0) {
             $locationId = (int) $node['location_id'];
-            if (!SettingsHelper::isLocationAllowed($locationId)) {
+            // Check user-specific location permission
+            $locationPermission = SettingsHelper::checkUserResourcePermission($userId, 'location', $locationId);
+            if (!$locationPermission['allowed']) {
                 return [
                     'valid' => false,
-                    'error' => 'This location is not available for user server creation',
+                    'error' => $locationPermission['custom_error'] ?? 'This location is not available for you',
                     'error_code' => 'LOCATION_NOT_ALLOWED',
                 ];
             }
@@ -115,10 +128,12 @@ class ServerCreationHelper
             ];
         }
 
-        if (!SettingsHelper::isRealmAllowed($realmId)) {
+        // Check user-specific realm permission
+        $realmPermission = SettingsHelper::checkUserResourcePermission($userId, 'realm', $realmId);
+        if (!$realmPermission['allowed']) {
             return [
                 'valid' => false,
-                'error' => 'This realm is not available for user server creation',
+                'error' => $realmPermission['custom_error'] ?? 'This realm is not available for you',
                 'error_code' => 'REALM_NOT_ALLOWED',
             ];
         }
@@ -134,10 +149,12 @@ class ServerCreationHelper
             ];
         }
 
-        if (!SettingsHelper::isSpellAllowed($spellId)) {
+        // Check user-specific spell permission
+        $spellPermission = SettingsHelper::checkUserResourcePermission($userId, 'spell', $spellId);
+        if (!$spellPermission['allowed']) {
             return [
                 'valid' => false,
-                'error' => 'This spell is not available for user server creation',
+                'error' => $spellPermission['custom_error'] ?? 'This spell is not available for you',
                 'error_code' => 'SPELL_NOT_ALLOWED',
             ];
         }
@@ -151,60 +168,53 @@ class ServerCreationHelper
             ];
         }
 
-        // Validate allocation exists and belongs to node
-        $allocationId = (int) $serverData['allocation_id'];
-        $allocation = Allocation::getAllocationById($allocationId);
-        if (!$allocation) {
+        // Check if there are available allocations on this node (allocation will be auto-selected)
+        $availableAllocations = Allocation::getAll(
+            search: null,
+            nodeId: $nodeId,
+            serverId: null,
+            limit: 1,
+            offset: 0,
+            notUsed: true
+        );
+
+        if (empty($availableAllocations)) {
             return [
                 'valid' => false,
-                'error' => 'Allocation not found',
-                'error_code' => 'ALLOCATION_NOT_FOUND',
+                'error' => 'No free allocations available on this node',
+                'error_code' => 'NO_FREE_ALLOCATIONS',
             ];
         }
 
-        if ((int) $allocation['node_id'] !== $nodeId) {
-            return [
-                'valid' => false,
-                'error' => 'Allocation does not belong to the selected node',
-                'error_code' => 'ALLOCATION_NODE_MISMATCH',
-            ];
-        }
-
-        // Check if allocation is already in use
-        $existingServer = \App\Chat\Server::getServerByAllocationId($allocationId);
-        if ($existingServer) {
-            return [
-                'valid' => false,
-                'error' => 'Allocation is already in use',
-                'error_code' => 'ALLOCATION_IN_USE',
-            ];
-        }
-
-        // Validate resource values
+        // Validate resource values against minimum requirements
         $memory = (int) $serverData['memory'];
         $cpu = (int) $serverData['cpu'];
         $disk = (int) $serverData['disk'];
 
-        if ($memory < 128) {
+        $minMemory = SettingsHelper::getMinimumMemory();
+        $minCpu = SettingsHelper::getMinimumCpu();
+        $minDisk = SettingsHelper::getMinimumDisk();
+
+        if ($memory < $minMemory) {
             return [
                 'valid' => false,
-                'error' => 'Memory must be at least 128 MB',
+                'error' => "Memory must be at least {$minMemory} MB",
                 'error_code' => 'INVALID_MEMORY',
             ];
         }
 
-        if ($cpu < 0) {
+        if ($cpu < $minCpu) {
             return [
                 'valid' => false,
-                'error' => 'CPU limit cannot be negative',
+                'error' => "CPU limit must be at least {$minCpu}%",
                 'error_code' => 'INVALID_CPU',
             ];
         }
 
-        if ($disk < 128) {
+        if ($disk < $minDisk) {
             return [
                 'valid' => false,
-                'error' => 'Disk must be at least 128 MB',
+                'error' => "Disk must be at least {$minDisk} MB",
                 'error_code' => 'INVALID_DISK',
             ];
         }
@@ -282,96 +292,226 @@ class ServerCreationHelper
     }
 
     /**
-     * Get filtered locations based on settings.
+     * Get filtered locations based on settings and user permissions.
+     * Returns only allowed locations with permission information.
      *
      * @param array<array<string,mixed>> $allLocations All locations
+     * @param int|null $userId User ID (optional, for user-specific filtering)
      *
-     * @return array<array<string,mixed>> Filtered locations
+     * @return array<array<string,mixed>> Allowed locations with permission info (allowed, error_message)
      */
-    public static function filterLocations(array $allLocations): array
+    public static function filterLocations(array $allLocations, ?int $userId = null): array
     {
-        $allowed = SettingsHelper::getAllowedLocations();
-        
-        // Empty array means all locations are allowed
-        if (empty($allowed)) {
-            return $allLocations;
+        $result = [];
+
+        foreach ($allLocations as $location) {
+            if (!isset($location['id'])) {
+                continue;
+            }
+
+            $locationId = (int) $location['id'];
+            $locationData = $location;
+
+            if ($userId !== null) {
+                $permission = SettingsHelper::checkUserResourcePermission($userId, 'location', $locationId);
+                $locationData['allowed'] = $permission['allowed'];
+                $locationData['error_message'] = $permission['custom_error'] ?? null;
+
+                // Only include locations that are allowed
+                if (!$permission['allowed']) {
+                    continue;
+                }
+            } else {
+                // If no user ID provided, check global restrictions only
+                $allowed = SettingsHelper::getAllowedLocations();
+                $isAllowed = empty($allowed) || in_array($locationId, $allowed, true);
+                $locationData['allowed'] = $isAllowed;
+                $locationData['error_message'] = $isAllowed ? null : 'This location is not available';
+
+                // Only include locations that are allowed
+                if (!$isAllowed) {
+                    continue;
+                }
+            }
+
+            $result[] = $locationData;
         }
 
-        return array_filter($allLocations, function ($location) use ($allowed) {
-            return isset($location['id']) && in_array((int) $location['id'], $allowed, true);
-        });
+        return $result;
     }
 
     /**
-     * Get filtered nodes based on settings.
+     * Get filtered nodes based on settings and user permissions.
+     * Returns only allowed nodes with permission information.
      *
      * @param array<array<string,mixed>> $allNodes All nodes
+     * @param int|null $userId User ID (optional, for user-specific filtering)
+     * @param int|null $locationId Location ID to filter by (optional)
      *
-     * @return array<array<string,mixed>> Filtered nodes
+     * @return array<array<string,mixed>> Allowed nodes with permission info (allowed, error_message)
      */
-    public static function filterNodes(array $allNodes): array
+    public static function filterNodes(array $allNodes, ?int $userId = null, ?int $locationId = null): array
     {
-        $allowedNodes = SettingsHelper::getAllowedNodes();
-        $allowedLocations = SettingsHelper::getAllowedLocations();
+        $result = [];
 
-        return array_filter($allNodes, function ($node) use ($allowedNodes, $allowedLocations) {
-            $nodeId = isset($node['id']) ? (int) $node['id'] : 0;
-            $locationId = isset($node['location_id']) ? (int) $node['location_id'] : 0;
-
-            // Check node restriction
-            if (!empty($allowedNodes) && !in_array($nodeId, $allowedNodes, true)) {
-                return false;
+        foreach ($allNodes as $node) {
+            if (!isset($node['id'])) {
+                continue;
             }
 
-            // Check location restriction
-            if ($locationId > 0 && !empty($allowedLocations) && !in_array($locationId, $allowedLocations, true)) {
-                return false;
+            // Filter by location if provided
+            if ($locationId !== null) {
+                $nodeLocationId = isset($node['location_id']) ? (int) $node['location_id'] : 0;
+                if ($nodeLocationId !== $locationId) {
+                    continue;
+                }
             }
 
-            return true;
-        });
+            $nodeId = (int) $node['id'];
+            $nodeData = $node;
+
+            if ($userId !== null) {
+                $permission = SettingsHelper::checkUserResourcePermission($userId, 'node', $nodeId);
+                $nodeData['allowed'] = $permission['allowed'];
+                $nodeData['error_message'] = $permission['custom_error'] ?? null;
+
+                // Only include nodes that are allowed
+                if (!$permission['allowed']) {
+                    continue;
+                }
+            } else {
+                // If no user ID provided, check global restrictions only
+                $allowedNodes = SettingsHelper::getAllowedNodes();
+                $allowedLocations = SettingsHelper::getAllowedLocations();
+                $nodeLocationId = isset($node['location_id']) ? (int) $node['location_id'] : 0;
+
+                $allowed = true;
+                if (!empty($allowedNodes) && !in_array($nodeId, $allowedNodes, true)) {
+                    $allowed = false;
+                }
+                if ($nodeLocationId > 0 && !empty($allowedLocations) && !in_array($nodeLocationId, $allowedLocations, true)) {
+                    $allowed = false;
+                }
+
+                $nodeData['allowed'] = $allowed;
+                $nodeData['error_message'] = $allowed ? null : 'This node is not available';
+
+                // Only include nodes that are allowed
+                if (!$allowed) {
+                    continue;
+                }
+            }
+
+            $result[] = $nodeData;
+        }
+
+        return $result;
     }
 
     /**
-     * Get filtered realms based on settings.
+     * Get filtered realms based on settings and user permissions.
+     * Returns only allowed realms with permission information.
      *
      * @param array<array<string,mixed>> $allRealms All realms
+     * @param int|null $userId User ID (optional, for user-specific filtering)
      *
-     * @return array<array<string,mixed>> Filtered realms
+     * @return array<array<string,mixed>> Allowed realms with permission info (allowed, error_message)
      */
-    public static function filterRealms(array $allRealms): array
+    public static function filterRealms(array $allRealms, ?int $userId = null): array
     {
-        $allowed = SettingsHelper::getAllowedRealms();
-        
-        // Empty array means all realms are allowed
-        if (empty($allowed)) {
-            return $allRealms;
+        $result = [];
+
+        foreach ($allRealms as $realm) {
+            if (!isset($realm['id'])) {
+                continue;
+            }
+
+            $realmId = (int) $realm['id'];
+            $realmData = $realm;
+
+            if ($userId !== null) {
+                $permission = SettingsHelper::checkUserResourcePermission($userId, 'realm', $realmId);
+                $realmData['allowed'] = $permission['allowed'];
+                $realmData['error_message'] = $permission['custom_error'] ?? null;
+
+                // Only include realms that are allowed
+                if (!$permission['allowed']) {
+                    continue;
+                }
+            } else {
+                // If no user ID provided, check global restrictions only
+                $allowed = SettingsHelper::getAllowedRealms();
+                $isAllowed = empty($allowed) || in_array($realmId, $allowed, true);
+                $realmData['allowed'] = $isAllowed;
+                $realmData['error_message'] = $isAllowed ? null : 'This realm is not available';
+
+                // Only include realms that are allowed
+                if (!$isAllowed) {
+                    continue;
+                }
+            }
+
+            $result[] = $realmData;
         }
 
-        return array_filter($allRealms, function ($realm) use ($allowed) {
-            return isset($realm['id']) && in_array((int) $realm['id'], $allowed, true);
-        });
+        return $result;
     }
 
     /**
-     * Get filtered spells based on settings.
+     * Get filtered spells based on settings and user permissions.
+     * Returns only allowed spells with permission information.
      *
      * @param array<array<string,mixed>> $allSpells All spells
+     * @param int|null $userId User ID (optional, for user-specific filtering)
+     * @param int|null $realmId Realm ID to filter by (optional)
      *
-     * @return array<array<string,mixed>> Filtered spells
+     * @return array<array<string,mixed>> Allowed spells with permission info (allowed, error_message)
      */
-    public static function filterSpells(array $allSpells): array
+    public static function filterSpells(array $allSpells, ?int $userId = null, ?int $realmId = null): array
     {
-        $allowed = SettingsHelper::getAllowedSpells();
-        
-        // Empty array means all spells are allowed
-        if (empty($allowed)) {
-            return $allSpells;
+        $result = [];
+
+        foreach ($allSpells as $spell) {
+            if (!isset($spell['id'])) {
+                continue;
+            }
+
+            // Filter by realm if provided
+            if ($realmId !== null) {
+                $spellRealmId = isset($spell['realm_id']) ? (int) $spell['realm_id'] : 0;
+                if ($spellRealmId !== $realmId) {
+                    continue;
+                }
+            }
+
+            $spellId = (int) $spell['id'];
+            $spellData = $spell;
+
+            if ($userId !== null) {
+                $permission = SettingsHelper::checkUserResourcePermission($userId, 'spell', $spellId);
+                $spellData['allowed'] = $permission['allowed'];
+                $spellData['error_message'] = $permission['custom_error'] ?? null;
+
+                // Only include spells that are allowed
+                if (!$permission['allowed']) {
+                    continue;
+                }
+            } else {
+                // If no user ID provided, check global restrictions only
+                $allowed = SettingsHelper::getAllowedSpells();
+                $isAllowed = empty($allowed) || in_array($spellId, $allowed, true);
+                $spellData['allowed'] = $isAllowed;
+                $spellData['error_message'] = $isAllowed ? null : 'This spell is not available';
+
+                // Only include spells that are allowed
+                if (!$isAllowed) {
+                    continue;
+                }
+            }
+
+            $result[] = $spellData;
         }
 
-        return array_filter($allSpells, function ($spell) use ($allowed) {
-            return isset($spell['id']) && in_array((int) $spell['id'], $allowed, true);
-        });
+        return $result;
     }
 }
-

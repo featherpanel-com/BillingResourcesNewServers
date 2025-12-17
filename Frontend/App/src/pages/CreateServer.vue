@@ -31,35 +31,20 @@ import {
 } from "lucide-vue-next";
 import {
   useNewServerAPI,
-  type Location,
+  type Location as LocationType,
   type Node,
   type Realm,
   type Spell,
-  type Allocation,
   type CreateServerData,
+  type ServerCreationOptions,
 } from "@/composables/useNewServerAPI";
 import { useToast } from "vue-toastification";
 
 const toast = useToast();
-const {
-  loading,
-  error,
-  getOptions,
-  getSpellDetails,
-  getAllocations,
-  createServer,
-} = useNewServerAPI();
+const { loading, error, getOptions, getSpellDetails, createServer } =
+  useNewServerAPI();
 
-const options = ref<{
-  locations: Location[];
-  nodes: Node[];
-  realms: Realm[];
-  spells: Spell[];
-  available_resources: any;
-} | null>(null);
-
-const allocations = ref<Allocation[]>([]);
-const loadingAllocations = ref(false);
+const options = ref<ServerCreationOptions | null>(null);
 
 // Docker image selection
 const dockerImagePopoverOpen = ref(false);
@@ -73,7 +58,7 @@ const form = ref<CreateServerData>({
   spell_id: 0,
   allocation_id: 0,
   memory: 1024,
-  cpu: 100,
+  cpu: 0, // Will be set based on available resources
   disk: 2048,
   swap: 0,
   io: 500,
@@ -90,15 +75,16 @@ const creating = ref(false);
 
 // Filtered options based on selections
 const filteredNodes = computed(() => {
-  if (!options.value || !form.value.node_id) return options.value?.nodes || [];
-  const selectedNode = options.value.nodes.find(
-    (n) => n.id === form.value.node_id
-  );
-  if (selectedNode) {
+  if (!options.value) return [];
+
+  // If a location is selected, filter nodes by location
+  if (form.value.location_id && form.value.location_id > 0) {
     return options.value.nodes.filter(
-      (n) => n.location_id === selectedNode.location_id
+      (n) => n.location_id === form.value.location_id
     );
   }
+
+  // Otherwise show all available nodes
   return options.value.nodes;
 });
 
@@ -111,20 +97,15 @@ const filteredSpells = computed(() => {
   );
 });
 
-const filteredAllocations = computed(() => {
-  return allocations.value.filter((a) => a.node_id === form.value.node_id);
-});
+// Allocations are auto-selected on the backend during server creation
 
-// Watch for node changes to load allocations
+// Watch for options changes to adjust CPU default
 watch(
-  () => form.value.node_id,
-  async (newNodeId) => {
-    if (newNodeId > 0) {
-      await loadAllocations(newNodeId);
-    } else {
-      allocations.value = [];
+  () => options.value?.available_resources.cpu_limit,
+  (cpuLimit) => {
+    if (cpuLimit !== undefined && form.value.cpu > cpuLimit) {
+      form.value.cpu = Math.min(form.value.cpu, cpuLimit);
     }
-    form.value.allocation_id = 0;
   }
 );
 
@@ -152,47 +133,68 @@ const loadOptions = async () => {
   try {
     const data = await getOptions();
     options.value = data;
+    // Set default values based on minimum resources
+    if (data.minimum_resources) {
+      form.value.memory = Math.max(
+        form.value.memory,
+        data.minimum_resources.memory
+      );
+      form.value.cpu = Math.max(form.value.cpu, data.minimum_resources.cpu);
+      form.value.disk = Math.max(form.value.disk, data.minimum_resources.disk);
+    }
   } catch (err) {
     toast.error(err instanceof Error ? err.message : "Failed to load options");
   }
 };
 
-const loadAllocations = async (nodeId: number) => {
-  loadingAllocations.value = true;
-  try {
-    allocations.value = await getAllocations(nodeId);
-    // Auto-select a random allocation if available
-    if (allocations.value && allocations.value.length > 0) {
-      const randomIndex = Math.floor(Math.random() * allocations.value.length);
-      const selectedAllocation = allocations.value[randomIndex];
-      if (selectedAllocation) {
-        form.value.allocation_id = selectedAllocation.id;
-      } else {
-        form.value.allocation_id = 0;
-      }
-    } else {
-      form.value.allocation_id = 0;
-    }
-  } catch (err) {
+// Allocations are auto-selected on the backend during server creation
+
+const selectLocation = (location: LocationType) => {
+  // Don't allow selection of disabled locations
+  if (location.allowed === false) {
     toast.error(
-      err instanceof Error ? err.message : "Failed to load allocations"
+      location.error_message ||
+        "You do not have permission to use this location"
     );
-    allocations.value = [];
-    form.value.allocation_id = 0;
-  } finally {
-    loadingAllocations.value = false;
+    return;
   }
+  form.value.location_id = location.id;
+  // Reset node selection when location changes
+  form.value.node_id = 0;
 };
 
 const selectNode = (node: Node) => {
+  // Don't allow selection of disabled nodes
+  if (node.allowed === false) {
+    toast.error(
+      node.error_message || "You do not have permission to use this node"
+    );
+    return;
+  }
   form.value.node_id = node.id;
 };
 
 const selectRealm = (realm: Realm) => {
+  // Don't allow selection of disabled realms
+  if (realm.allowed === false) {
+    toast.error(
+      realm.error_message || "You do not have permission to use this realm"
+    );
+    return;
+  }
   form.value.realms_id = realm.id;
+  // Reset spell selection when realm changes
+  form.value.spell_id = 0;
 };
 
 const selectSpell = async (spell: Spell) => {
+  // Don't allow selection of disabled spells
+  if (spell.allowed === false) {
+    toast.error(
+      spell.error_message || "You do not have permission to use this spell"
+    );
+    return;
+  }
   form.value.spell_id = spell.id;
   // Load spell details to get default startup and image (using user API)
   try {
@@ -245,9 +247,7 @@ const selectDockerImage = (image: string) => {
   dockerImagePopoverOpen.value = false;
 };
 
-const selectAllocation = (allocation: Allocation) => {
-  form.value.allocation_id = allocation.id;
-};
+// Allocation selection removed - allocations are auto-selected on the backend
 
 const canCreate = computed(() => {
   if (!options.value) return false;
@@ -261,12 +261,11 @@ const canCreate = computed(() => {
     form.value.node_id > 0 &&
     form.value.realms_id > 0 &&
     form.value.spell_id > 0 &&
-    form.value.allocation_id > 0 &&
     form.value.startup.trim() !== "" &&
     form.value.image.trim() !== "" &&
-    form.value.memory >= 128 &&
-    form.value.cpu >= 0 &&
-    form.value.disk >= 128 &&
+    form.value.memory >= (options.value?.minimum_resources?.memory ?? 128) &&
+    form.value.cpu >= (options.value?.minimum_resources?.cpu ?? 0) &&
+    form.value.disk >= (options.value?.minimum_resources?.disk ?? 128) &&
     form.value.memory <= available.memory_limit &&
     form.value.cpu <= available.cpu_limit &&
     form.value.disk <= available.disk_limit &&
@@ -283,6 +282,98 @@ const canCreate = computed(() => {
 
 const handleCreate = async () => {
   if (!canCreate.value) {
+    // Provide more specific error messages
+    if (!options.value) {
+      toast.error("Options not loaded yet");
+      return;
+    }
+    const available = options.value.available_resources;
+
+    if (form.value.name.trim() === "") {
+      toast.error("Server name is required");
+      return;
+    }
+    if (form.value.node_id <= 0) {
+      toast.error("Please select a node");
+      return;
+    }
+    if (form.value.realms_id <= 0) {
+      toast.error("Please select a realm");
+      return;
+    }
+    if (form.value.spell_id <= 0) {
+      toast.error("Please select a spell");
+      return;
+    }
+    if (form.value.startup.trim() === "") {
+      toast.error("Startup command is required");
+      return;
+    }
+    if (form.value.image.trim() === "") {
+      toast.error("Docker image is required");
+      return;
+    }
+    if (form.value.memory < 128) {
+      toast.error("Memory must be at least 128 MB");
+      return;
+    }
+    if (form.value.memory > available.memory_limit) {
+      toast.error(
+        `Memory exceeds limit. Max: ${formatBytes(available.memory_limit)}`
+      );
+      return;
+    }
+    const minCpu = options.value.minimum_resources?.cpu ?? 0;
+    if (form.value.cpu < minCpu) {
+      toast.error(`CPU must be at least ${minCpu}%`);
+      return;
+    }
+    if (form.value.cpu > available.cpu_limit) {
+      toast.error(
+        `CPU exceeds limit. Max: ${formatPercentage(available.cpu_limit)}`
+      );
+      return;
+    }
+    const minDisk = options.value.minimum_resources?.disk ?? 128;
+    if (form.value.disk < minDisk) {
+      toast.error(`Disk must be at least ${minDisk} MB`);
+      return;
+    }
+    if (form.value.disk > available.disk_limit) {
+      toast.error(
+        `Disk exceeds limit. Max: ${formatBytes(available.disk_limit)}`
+      );
+      return;
+    }
+    if (available.server_limit <= 0) {
+      toast.error("You have reached your server limit");
+      return;
+    }
+    const dbLimit = form.value.database_limit ?? 0;
+    const allocLimit = form.value.allocation_limit ?? 0;
+    const backupLimit = form.value.backup_limit ?? 0;
+    if (available.database_limit > 0 && dbLimit > available.database_limit) {
+      toast.error(
+        `Database limit exceeds available. Max: ${available.database_limit}`
+      );
+      return;
+    }
+    if (
+      available.allocation_limit > 0 &&
+      allocLimit > available.allocation_limit
+    ) {
+      toast.error(
+        `Allocation limit exceeds available. Max: ${available.allocation_limit}`
+      );
+      return;
+    }
+    if (available.backup_limit > 0 && backupLimit > available.backup_limit) {
+      toast.error(
+        `Backup limit exceeds available. Max: ${available.backup_limit}`
+      );
+      return;
+    }
+
     toast.error(
       "Please fill in all required fields and ensure resources are within limits"
     );
@@ -299,9 +390,9 @@ const handleCreate = async () => {
       node_id: 0,
       realms_id: 0,
       spell_id: 0,
-      allocation_id: 0,
+      allocation_id: 0, // Will be auto-selected on backend
       memory: 1024,
-      cpu: 100,
+      cpu: Math.min(100, options.value?.available_resources.cpu_limit ?? 100),
       disk: 2048,
       swap: 0,
       io: 500,
@@ -313,7 +404,6 @@ const handleCreate = async () => {
       backup_limit: 0,
       variables: {},
     };
-    allocations.value = [];
     // Reload options to refresh available resources
     await loadOptions();
   } catch (err) {
@@ -472,25 +562,71 @@ onMounted(() => {
               />
             </div>
 
-            <!-- Node Selection -->
+            <!-- Location Selection -->
             <div>
+              <Label>Location *</Label>
+              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div
+                  v-for="location in options.locations"
+                  :key="location.id"
+                  @click="selectLocation(location)"
+                  class="p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                  :class="{
+                    'border-primary bg-primary/10':
+                      form.location_id && form.location_id === location.id,
+                  }"
+                >
+                  <div class="font-medium">{{ location.name }}</div>
+                  <div
+                    v-if="location.description"
+                    class="text-sm text-muted-foreground"
+                  >
+                    {{ location.description }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Node Selection -->
+            <div v-if="form.location_id && form.location_id > 0">
               <Label>Node *</Label>
               <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
                 <div
                   v-for="node in filteredNodes"
                   :key="node.id"
                   @click="selectNode(node)"
-                  class="p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                  class="p-3 border rounded-lg transition-colors"
                   :class="{
                     'border-primary bg-primary/10': form.node_id === node.id,
+                    'cursor-pointer hover:bg-accent': node.allowed !== false,
+                    'cursor-not-allowed opacity-50 bg-muted':
+                      node.allowed === false,
                   }"
                 >
-                  <div class="font-medium">{{ node.name }}</div>
+                  <div class="flex items-center justify-between">
+                    <div class="font-medium">{{ node.name }}</div>
+                    <AlertCircle
+                      v-if="node.allowed === false"
+                      class="h-4 w-4 text-destructive"
+                    />
+                  </div>
                   <div class="text-sm text-muted-foreground">
                     {{ node.fqdn }}
                   </div>
+                  <div
+                    v-if="node.allowed === false && node.error_message"
+                    class="text-xs text-destructive mt-1"
+                  >
+                    {{ node.error_message }}
+                  </div>
                 </div>
               </div>
+              <p
+                v-if="filteredNodes.length === 0"
+                class="text-sm text-muted-foreground mt-2"
+              >
+                No nodes available in this location
+              </p>
             </div>
 
             <!-- Realm Selection -->
@@ -501,17 +637,32 @@ onMounted(() => {
                   v-for="realm in options.realms"
                   :key="realm.id"
                   @click="selectRealm(realm)"
-                  class="p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                  class="p-3 border rounded-lg transition-colors"
                   :class="{
                     'border-primary bg-primary/10': form.realms_id === realm.id,
+                    'cursor-pointer hover:bg-accent': realm.allowed !== false,
+                    'cursor-not-allowed opacity-50 bg-muted':
+                      realm.allowed === false,
                   }"
                 >
-                  <div class="font-medium">{{ realm.name }}</div>
+                  <div class="flex items-center justify-between">
+                    <div class="font-medium">{{ realm.name }}</div>
+                    <AlertCircle
+                      v-if="realm.allowed === false"
+                      class="h-4 w-4 text-destructive"
+                    />
+                  </div>
                   <div
                     v-if="realm.description"
                     class="text-sm text-muted-foreground"
                   >
                     {{ realm.description }}
+                  </div>
+                  <div
+                    v-if="realm.allowed === false && realm.error_message"
+                    class="text-xs text-destructive mt-1"
+                  >
+                    {{ realm.error_message }}
                   </div>
                 </div>
               </div>
@@ -525,82 +676,32 @@ onMounted(() => {
                   v-for="spell in filteredSpells"
                   :key="spell.id"
                   @click="selectSpell(spell)"
-                  class="p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                  class="p-3 border rounded-lg transition-colors"
                   :class="{
                     'border-primary bg-primary/10': form.spell_id === spell.id,
+                    'cursor-pointer hover:bg-accent': spell.allowed !== false,
+                    'cursor-not-allowed opacity-50 bg-muted':
+                      spell.allowed === false,
                   }"
                 >
-                  <div class="font-medium">{{ spell.name }}</div>
+                  <div class="flex items-center justify-between">
+                    <div class="font-medium">{{ spell.name }}</div>
+                    <AlertCircle
+                      v-if="spell.allowed === false"
+                      class="h-4 w-4 text-destructive"
+                    />
+                  </div>
                   <div
                     v-if="spell.description"
                     class="text-sm text-muted-foreground"
                   >
                     {{ spell.description }}
                   </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Allocation Display (Auto-selected) -->
-            <div v-if="form.node_id > 0">
-              <Label>Allocation</Label>
-              <div
-                v-if="loadingAllocations"
-                class="mt-2 flex items-center justify-center py-4"
-              >
-                <Loader2 class="h-6 w-6 animate-spin" />
-                <span class="ml-2 text-sm text-muted-foreground">
-                  Selecting random allocation...
-                </span>
-              </div>
-              <div v-else-if="filteredAllocations.length === 0" class="mt-2">
-                <p class="text-sm text-destructive">
-                  No available allocations for this node
-                </p>
-              </div>
-              <div v-else-if="form.allocation_id > 0" class="mt-2">
-                <div class="p-3 border rounded-lg bg-muted/50">
-                  <div class="font-medium">
-                    {{
-                      filteredAllocations.find(
-                        (a) => a.id === form.allocation_id
-                      )?.ip || "Unknown"
-                    }}:{{
-                      filteredAllocations.find(
-                        (a) => a.id === form.allocation_id
-                      )?.port || "Unknown"
-                    }}
-                  </div>
                   <div
-                    v-if="
-                      filteredAllocations.find(
-                        (a) => a.id === form.allocation_id
-                      )?.ip_alias
-                    "
-                    class="text-sm text-muted-foreground"
+                    v-if="spell.allowed === false && spell.error_message"
+                    class="text-xs text-destructive mt-1"
                   >
-                    {{
-                      filteredAllocations.find(
-                        (a) => a.id === form.allocation_id
-                      )?.ip_alias
-                    }}
-                  </div>
-                  <p class="text-xs text-muted-foreground mt-1">
-                    Randomly selected allocation. Click to change:
-                  </p>
-                  <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <div
-                      v-for="allocation in filteredAllocations.slice(0, 4)"
-                      :key="allocation.id"
-                      @click="selectAllocation(allocation)"
-                      class="p-2 border rounded cursor-pointer hover:bg-accent transition-colors text-sm"
-                      :class="{
-                        'border-primary bg-primary/10':
-                          form.allocation_id === allocation.id,
-                      }"
-                    >
-                      {{ allocation.ip }}:{{ allocation.port }}
-                    </div>
+                    {{ spell.error_message }}
                   </div>
                 </div>
               </div>
@@ -815,11 +916,7 @@ onMounted(() => {
 
         <!-- Create Button -->
         <div class="flex justify-end">
-          <Button
-            @click="handleCreate"
-            :disabled="!canCreate || creating"
-            size="lg"
-          >
+          <Button @click="handleCreate" :disabled="creating" size="lg">
             <Loader2 v-if="creating" class="h-4 w-4 mr-2 animate-spin" />
             <Plus v-else class="h-4 w-4 mr-2" />
             Create Server

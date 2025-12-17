@@ -22,8 +22,6 @@ class BillingResourcesNewServers implements AppPlugin
      */
     public static function pluginInstall(): void
     {
-        // Plugin installation logic
-        // Create tables, directories, etc.
     }
 
     /**

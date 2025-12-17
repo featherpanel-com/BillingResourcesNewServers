@@ -18,6 +18,7 @@ export default defineConfig({
       input: {
         admin: "./admin.html",
         client: "./client.html",
+        "user-permissions": "./user-permissions.html",
       },
     },
   },

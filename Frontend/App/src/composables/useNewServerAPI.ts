@@ -16,6 +16,8 @@ export interface Location {
   name: string;
   description?: string;
   flag_code?: string;
+  allowed?: boolean;
+  error_message?: string | null;
 }
 
 export interface Node {
@@ -24,6 +26,8 @@ export interface Node {
   location_id: number;
   fqdn: string;
   maintenance_mode: boolean;
+  allowed?: boolean;
+  error_message?: string | null;
 }
 
 export interface Realm {
@@ -31,6 +35,8 @@ export interface Realm {
   name: string;
   description?: string;
   logo?: string;
+  allowed?: boolean;
+  error_message?: string | null;
 }
 
 export interface Spell {
@@ -39,6 +45,8 @@ export interface Spell {
   description?: string;
   banner?: string;
   realm_id: number;
+  allowed?: boolean;
+  error_message?: string | null;
 }
 
 export interface Allocation {
@@ -59,20 +67,28 @@ export interface AvailableResources {
   allocation_limit: number;
 }
 
+export interface MinimumResources {
+  memory: number;
+  cpu: number;
+  disk: number;
+}
+
 export interface ServerCreationOptions {
   locations: Location[];
   nodes: Node[];
   realms: Realm[];
   spells: Spell[];
   available_resources: AvailableResources;
+  minimum_resources: MinimumResources;
 }
 
 export interface CreateServerData {
   name: string;
+  location_id?: number;
   node_id: number;
   realms_id: number;
   spell_id: number;
-  allocation_id: number;
+  allocation_id?: number;
   memory: number;
   cpu: number;
   disk: number;

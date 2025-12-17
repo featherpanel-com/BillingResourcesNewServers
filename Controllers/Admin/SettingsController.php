@@ -93,6 +93,16 @@ class SettingsController
                         description: 'Array of allowed spell IDs (empty array = all allowed)',
                         items: new OA\Items(type: 'integer')
                     ),
+                    new OA\Property(property: 'minimum_memory', type: 'integer', description: 'Minimum memory required (MB)', example: 128),
+                    new OA\Property(property: 'minimum_cpu', type: 'integer', description: 'Minimum CPU required (%)', example: 0),
+                    new OA\Property(property: 'minimum_disk', type: 'integer', description: 'Minimum disk required (MB)', example: 128),
+                    new OA\Property(property: 'user_restriction_mode', type: 'string', enum: ['all', 'specific'], description: 'User restriction mode: "all" for all users, "specific" for specific users only', example: 'all'),
+                    new OA\Property(
+                        property: 'allowed_users',
+                        type: 'array',
+                        description: 'Array of allowed user IDs (only used when user_restriction_mode is "specific")',
+                        items: new OA\Items(type: 'integer')
+                    ),
                 ]
             )
         ),
@@ -148,6 +158,64 @@ class SettingsController
                 return ApiResponse::error('allowed_spells must be an array', 'INVALID_TYPE', 400);
             }
             SettingsHelper::setAllowedSpells($data['allowed_spells']);
+        }
+
+        // Update minimum memory
+        if (isset($data['minimum_memory'])) {
+            if (!is_numeric($data['minimum_memory']) || (int) $data['minimum_memory'] < 128) {
+                return ApiResponse::error('minimum_memory must be at least 128 MB', 'INVALID_MINIMUM_MEMORY', 400);
+            }
+            SettingsHelper::setMinimumMemory((int) $data['minimum_memory']);
+        }
+
+        // Update minimum CPU
+        if (isset($data['minimum_cpu'])) {
+            if (!is_numeric($data['minimum_cpu']) || (int) $data['minimum_cpu'] < 0) {
+                return ApiResponse::error('minimum_cpu must be 0 or greater', 'INVALID_MINIMUM_CPU', 400);
+            }
+            SettingsHelper::setMinimumCpu((int) $data['minimum_cpu']);
+        }
+
+        // Update minimum disk
+        if (isset($data['minimum_disk'])) {
+            if (!is_numeric($data['minimum_disk']) || (int) $data['minimum_disk'] < 128) {
+                return ApiResponse::error('minimum_disk must be at least 128 MB', 'INVALID_MINIMUM_DISK', 400);
+            }
+            SettingsHelper::setMinimumDisk((int) $data['minimum_disk']);
+        }
+
+        // Update user restriction mode
+        if (isset($data['user_restriction_mode'])) {
+            if (!in_array($data['user_restriction_mode'], ['all', 'specific'], true)) {
+                return ApiResponse::error('user_restriction_mode must be "all" or "specific"', 'INVALID_USER_RESTRICTION_MODE', 400);
+            }
+            SettingsHelper::setUserRestrictionMode($data['user_restriction_mode']);
+        }
+
+        // Update allowed users
+        if (isset($data['allowed_users'])) {
+            if (!is_array($data['allowed_users'])) {
+                return ApiResponse::error('allowed_users must be an array', 'INVALID_TYPE', 400);
+            }
+            SettingsHelper::setAllowedUsers($data['allowed_users']);
+        }
+
+        // Update permission modes for resource types
+        $resourceTypes = ['location', 'node', 'realm', 'spell'];
+        foreach ($resourceTypes as $resourceType) {
+            $key = 'permission_mode_' . $resourceType;
+            if (isset($data[$key])) {
+                if (!in_array($data[$key], ['open', 'restricted'], true)) {
+                    return ApiResponse::error($key . ' must be "open" or "restricted"', 'INVALID_PERMISSION_MODE', 400);
+                }
+                SettingsHelper::setResourcePermissionMode($resourceType, $data[$key]);
+            }
+
+            // Update default error messages
+            $errorKey = 'default_error_' . $resourceType;
+            if (isset($data[$errorKey])) {
+                SettingsHelper::setResourceDefaultErrorMessage($resourceType, (string) $data[$errorKey]);
+            }
         }
 
         // Log activity

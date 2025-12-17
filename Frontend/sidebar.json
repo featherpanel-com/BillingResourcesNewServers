@@ -20,7 +20,17 @@
       "component": "/billingresourcesnewservers/dist/admin.html",
       "description": "Configure user server creation settings",
       "category": "admin",
-      "group": "Billing"
+      "group": "Fremium Resources"
+    },
+    "/billingresourcesnewservers/permissions": {
+      "name": "New Server Permissions",
+      "icon": "👤",
+      "showBadge": false,
+      "redirect": "/billingresourcesnewservers/permissions",
+      "component": "/billingresourcesnewservers/dist/user-permissions.html",
+      "description": "Manage user permissions for server creation",
+      "category": "admin",
+      "group": "Fremium Resources"
     }
   },
   "server": {}

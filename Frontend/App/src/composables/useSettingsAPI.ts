@@ -13,18 +13,44 @@ export interface ApiResponse<T> {
 
 export interface PluginSettings {
   user_creation_enabled: boolean;
+  user_restriction_mode?: 'all' | 'specific';
+  allowed_users?: number[];
   allowed_locations: number[];
   allowed_nodes: number[];
   allowed_realms: number[];
   allowed_spells: number[];
+  minimum_memory?: number;
+  minimum_cpu?: number;
+  minimum_disk?: number;
+  permission_mode_location?: 'open' | 'restricted';
+  permission_mode_node?: 'open' | 'restricted';
+  permission_mode_realm?: 'open' | 'restricted';
+  permission_mode_spell?: 'open' | 'restricted';
+  default_error_location?: string;
+  default_error_node?: string;
+  default_error_realm?: string;
+  default_error_spell?: string;
 }
 
 export interface UpdateSettingsData {
   user_creation_enabled?: boolean;
+  user_restriction_mode?: 'all' | 'specific';
+  allowed_users?: number[];
   allowed_locations?: number[];
   allowed_nodes?: number[];
   allowed_realms?: number[];
   allowed_spells?: number[];
+  minimum_memory?: number;
+  minimum_cpu?: number;
+  minimum_disk?: number;
+  permission_mode_location?: 'open' | 'restricted';
+  permission_mode_node?: 'open' | 'restricted';
+  permission_mode_realm?: 'open' | 'restricted';
+  permission_mode_spell?: 'open' | 'restricted';
+  default_error_location?: string;
+  default_error_node?: string;
+  default_error_realm?: string;
+  default_error_spell?: string;
 }
 
 export function useSettingsAPI() {
