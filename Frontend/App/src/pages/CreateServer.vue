@@ -1,0 +1,831 @@
+<script setup lang="ts">
+import { ref, onMounted, computed, watch } from "vue";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from "@/components/ui/command";
+import { cn } from "@/lib/utils";
+import {
+  Loader2,
+  Server,
+  Plus,
+  HardDrive,
+  Cpu,
+  Database,
+  AlertCircle,
+  CheckCircle2,
+  ChevronsUpDown,
+  Check,
+} from "lucide-vue-next";
+import {
+  useNewServerAPI,
+  type Location,
+  type Node,
+  type Realm,
+  type Spell,
+  type Allocation,
+  type CreateServerData,
+} from "@/composables/useNewServerAPI";
+import { useToast } from "vue-toastification";
+
+const toast = useToast();
+const {
+  loading,
+  error,
+  getOptions,
+  getSpellDetails,
+  getAllocations,
+  createServer,
+} = useNewServerAPI();
+
+const options = ref<{
+  locations: Location[];
+  nodes: Node[];
+  realms: Realm[];
+  spells: Spell[];
+  available_resources: any;
+} | null>(null);
+
+const allocations = ref<Allocation[]>([]);
+const loadingAllocations = ref(false);
+
+// Docker image selection
+const dockerImagePopoverOpen = ref(false);
+const availableDockerImages = ref<string[]>([]);
+const selectedDockerImage = ref<string>("");
+
+const form = ref<CreateServerData>({
+  name: "",
+  node_id: 0,
+  realms_id: 0,
+  spell_id: 0,
+  allocation_id: 0,
+  memory: 1024,
+  cpu: 100,
+  disk: 2048,
+  swap: 0,
+  io: 500,
+  description: "",
+  startup: "",
+  image: "",
+  database_limit: 0,
+  allocation_limit: 0,
+  backup_limit: 0,
+  variables: {},
+});
+
+const creating = ref(false);
+
+// Filtered options based on selections
+const filteredNodes = computed(() => {
+  if (!options.value || !form.value.node_id) return options.value?.nodes || [];
+  const selectedNode = options.value.nodes.find(
+    (n) => n.id === form.value.node_id
+  );
+  if (selectedNode) {
+    return options.value.nodes.filter(
+      (n) => n.location_id === selectedNode.location_id
+    );
+  }
+  return options.value.nodes;
+});
+
+const filteredSpells = computed(() => {
+  if (!options.value || !form.value.realms_id) {
+    return [];
+  }
+  return options.value.spells.filter(
+    (s) => s.realm_id === form.value.realms_id
+  );
+});
+
+const filteredAllocations = computed(() => {
+  return allocations.value.filter((a) => a.node_id === form.value.node_id);
+});
+
+// Watch for node changes to load allocations
+watch(
+  () => form.value.node_id,
+  async (newNodeId) => {
+    if (newNodeId > 0) {
+      await loadAllocations(newNodeId);
+    } else {
+      allocations.value = [];
+    }
+    form.value.allocation_id = 0;
+  }
+);
+
+// Watch for realm changes to reset spell
+watch(
+  () => form.value.realms_id,
+  () => {
+    form.value.spell_id = 0;
+  }
+);
+
+const formatBytes = (mb: number): string => {
+  if (mb === 0) return "0 MB";
+  if (mb >= 1024) {
+    return `${(mb / 1024).toFixed(2)} GB`;
+  }
+  return `${mb} MB`;
+};
+
+const formatPercentage = (value: number): string => {
+  return `${value}%`;
+};
+
+const loadOptions = async () => {
+  try {
+    const data = await getOptions();
+    options.value = data;
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : "Failed to load options");
+  }
+};
+
+const loadAllocations = async (nodeId: number) => {
+  loadingAllocations.value = true;
+  try {
+    allocations.value = await getAllocations(nodeId);
+    // Auto-select a random allocation if available
+    if (allocations.value && allocations.value.length > 0) {
+      const randomIndex = Math.floor(Math.random() * allocations.value.length);
+      const selectedAllocation = allocations.value[randomIndex];
+      if (selectedAllocation) {
+        form.value.allocation_id = selectedAllocation.id;
+      } else {
+        form.value.allocation_id = 0;
+      }
+    } else {
+      form.value.allocation_id = 0;
+    }
+  } catch (err) {
+    toast.error(
+      err instanceof Error ? err.message : "Failed to load allocations"
+    );
+    allocations.value = [];
+    form.value.allocation_id = 0;
+  } finally {
+    loadingAllocations.value = false;
+  }
+};
+
+const selectNode = (node: Node) => {
+  form.value.node_id = node.id;
+};
+
+const selectRealm = (realm: Realm) => {
+  form.value.realms_id = realm.id;
+};
+
+const selectSpell = async (spell: Spell) => {
+  form.value.spell_id = spell.id;
+  // Load spell details to get default startup and image (using user API)
+  try {
+    const spellData = await getSpellDetails(spell.id);
+    if (spellData) {
+      // Update startup command from spell
+      if (spellData.startup) {
+        form.value.startup = spellData.startup;
+      }
+
+      // Parse docker images (like admin page)
+      if (spellData.docker_images) {
+        try {
+          const dockerImagesObj = JSON.parse(spellData.docker_images);
+          availableDockerImages.value = Object.values(dockerImagesObj);
+          selectedDockerImage.value = availableDockerImages.value[0] || "";
+          form.value.image = selectedDockerImage.value;
+        } catch (e) {
+          console.error("Failed to parse docker images:", e);
+          availableDockerImages.value = [];
+          selectedDockerImage.value = "";
+          // If parsing fails, try docker_image field as fallback
+          if (spellData.docker_image) {
+            selectedDockerImage.value = spellData.docker_image;
+            form.value.image = spellData.docker_image;
+          }
+        }
+      } else if (spellData.docker_image) {
+        // Fallback to docker_image field
+        selectedDockerImage.value = spellData.docker_image;
+        form.value.image = spellData.docker_image;
+        availableDockerImages.value = [spellData.docker_image];
+      } else {
+        availableDockerImages.value = [];
+        selectedDockerImage.value = "";
+        form.value.image = "";
+      }
+    }
+  } catch (err) {
+    // Ignore errors, just use defaults
+    console.error("Failed to fetch spell details:", err);
+    availableDockerImages.value = [];
+    selectedDockerImage.value = "";
+  }
+};
+
+const selectDockerImage = (image: string) => {
+  selectedDockerImage.value = image;
+  form.value.image = image;
+  dockerImagePopoverOpen.value = false;
+};
+
+const selectAllocation = (allocation: Allocation) => {
+  form.value.allocation_id = allocation.id;
+};
+
+const canCreate = computed(() => {
+  if (!options.value) return false;
+  const available = options.value.available_resources;
+  const dbLimit = form.value.database_limit ?? 0;
+  const allocLimit = form.value.allocation_limit ?? 0;
+  const backupLimit = form.value.backup_limit ?? 0;
+
+  return (
+    form.value.name.trim() !== "" &&
+    form.value.node_id > 0 &&
+    form.value.realms_id > 0 &&
+    form.value.spell_id > 0 &&
+    form.value.allocation_id > 0 &&
+    form.value.startup.trim() !== "" &&
+    form.value.image.trim() !== "" &&
+    form.value.memory >= 128 &&
+    form.value.cpu >= 0 &&
+    form.value.disk >= 128 &&
+    form.value.memory <= available.memory_limit &&
+    form.value.cpu <= available.cpu_limit &&
+    form.value.disk <= available.disk_limit &&
+    available.server_limit > 0 &&
+    dbLimit >= 0 &&
+    allocLimit >= 0 &&
+    backupLimit >= 0 &&
+    (available.database_limit === 0 || dbLimit <= available.database_limit) &&
+    (available.allocation_limit === 0 ||
+      allocLimit <= available.allocation_limit) &&
+    (available.backup_limit === 0 || backupLimit <= available.backup_limit)
+  );
+});
+
+const handleCreate = async () => {
+  if (!canCreate.value) {
+    toast.error(
+      "Please fill in all required fields and ensure resources are within limits"
+    );
+    return;
+  }
+
+  creating.value = true;
+  try {
+    await createServer(form.value);
+    toast.success("Server created successfully!");
+    // Reset form
+    form.value = {
+      name: "",
+      node_id: 0,
+      realms_id: 0,
+      spell_id: 0,
+      allocation_id: 0,
+      memory: 1024,
+      cpu: 100,
+      disk: 2048,
+      swap: 0,
+      io: 500,
+      description: "",
+      startup: "",
+      image: "",
+      database_limit: 0,
+      allocation_limit: 0,
+      backup_limit: 0,
+      variables: {},
+    };
+    allocations.value = [];
+    // Reload options to refresh available resources
+    await loadOptions();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : "Failed to create server");
+  } finally {
+    creating.value = false;
+  }
+};
+
+onMounted(() => {
+  loadOptions();
+});
+</script>
+
+<template>
+  <div class="w-full h-full overflow-auto p-4">
+    <div class="container mx-auto max-w-5xl">
+      <div class="mb-6">
+        <h1 class="text-2xl font-semibold">Create New Server</h1>
+        <p class="text-sm text-muted-foreground">
+          Create a new server using your available resources
+        </p>
+      </div>
+
+      <div
+        v-if="loading && !options"
+        class="flex items-center justify-center py-12"
+      >
+        <Loader2 class="h-8 w-8 animate-spin" />
+      </div>
+
+      <div v-else-if="error" class="mb-6">
+        <Card class="p-6 border-destructive">
+          <div class="flex items-center gap-3">
+            <AlertCircle class="h-5 w-5 text-destructive" />
+            <div>
+              <h3 class="font-semibold text-destructive">Error</h3>
+              <p class="text-sm text-muted-foreground">{{ error }}</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <div v-else-if="options" class="space-y-6">
+        <!-- Available Resources Summary -->
+        <Card class="p-6">
+          <div class="flex items-center gap-2 mb-4">
+            <CheckCircle2 class="h-5 w-5 text-primary" />
+            <h2 class="text-lg font-semibold">Available Resources</h2>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="p-4 border rounded-lg">
+              <div class="flex items-center gap-2 mb-2">
+                <HardDrive class="h-4 w-4 text-muted-foreground" />
+                <span class="text-sm text-muted-foreground">Memory</span>
+              </div>
+              <div class="text-xl font-bold">
+                {{ formatBytes(options.available_resources.memory_limit) }}
+              </div>
+            </div>
+            <div class="p-4 border rounded-lg">
+              <div class="flex items-center gap-2 mb-2">
+                <Cpu class="h-4 w-4 text-muted-foreground" />
+                <span class="text-sm text-muted-foreground">CPU</span>
+              </div>
+              <div class="text-xl font-bold">
+                {{ formatPercentage(options.available_resources.cpu_limit) }}
+              </div>
+            </div>
+            <div class="p-4 border rounded-lg">
+              <div class="flex items-center gap-2 mb-2">
+                <Database class="h-4 w-4 text-muted-foreground" />
+                <span class="text-sm text-muted-foreground">Disk</span>
+              </div>
+              <div class="text-xl font-bold">
+                {{ formatBytes(options.available_resources.disk_limit) }}
+              </div>
+            </div>
+            <div class="p-4 border rounded-lg">
+              <div class="flex items-center gap-2 mb-2">
+                <Server class="h-4 w-4 text-muted-foreground" />
+                <span class="text-sm text-muted-foreground">Servers</span>
+              </div>
+              <div class="text-xl font-bold">
+                {{ options.available_resources.server_limit }}
+              </div>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4">
+            <div class="p-4 border rounded-lg">
+              <div class="flex items-center gap-2 mb-2">
+                <Database class="h-4 w-4 text-muted-foreground" />
+                <span class="text-sm text-muted-foreground">Databases</span>
+              </div>
+              <div class="text-xl font-bold">
+                {{
+                  options.available_resources.database_limit === 0
+                    ? "∞"
+                    : options.available_resources.database_limit
+                }}
+              </div>
+            </div>
+            <div class="p-4 border rounded-lg">
+              <div class="flex items-center gap-2 mb-2">
+                <Server class="h-4 w-4 text-muted-foreground" />
+                <span class="text-sm text-muted-foreground">Allocations</span>
+              </div>
+              <div class="text-xl font-bold">
+                {{
+                  options.available_resources.allocation_limit === 0
+                    ? "∞"
+                    : options.available_resources.allocation_limit
+                }}
+              </div>
+            </div>
+            <div class="p-4 border rounded-lg">
+              <div class="flex items-center gap-2 mb-2">
+                <Database class="h-4 w-4 text-muted-foreground" />
+                <span class="text-sm text-muted-foreground">Backups</span>
+              </div>
+              <div class="text-xl font-bold">
+                {{
+                  options.available_resources.backup_limit === 0
+                    ? "∞"
+                    : options.available_resources.backup_limit
+                }}
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <!-- Server Creation Form -->
+        <Card class="p-6">
+          <h2 class="text-lg font-semibold mb-6">Server Configuration</h2>
+
+          <div class="space-y-6">
+            <!-- Server Name -->
+            <div>
+              <Label for="name">Server Name *</Label>
+              <Input
+                id="name"
+                v-model="form.name"
+                placeholder="My Awesome Server"
+                class="mt-2"
+              />
+            </div>
+
+            <!-- Description -->
+            <div>
+              <Label for="description">Description</Label>
+              <Input
+                id="description"
+                v-model="form.description"
+                placeholder="Optional server description"
+                class="mt-2"
+              />
+            </div>
+
+            <!-- Node Selection -->
+            <div>
+              <Label>Node *</Label>
+              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div
+                  v-for="node in filteredNodes"
+                  :key="node.id"
+                  @click="selectNode(node)"
+                  class="p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                  :class="{
+                    'border-primary bg-primary/10': form.node_id === node.id,
+                  }"
+                >
+                  <div class="font-medium">{{ node.name }}</div>
+                  <div class="text-sm text-muted-foreground">
+                    {{ node.fqdn }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Realm Selection -->
+            <div>
+              <Label>Realm *</Label>
+              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div
+                  v-for="realm in options.realms"
+                  :key="realm.id"
+                  @click="selectRealm(realm)"
+                  class="p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                  :class="{
+                    'border-primary bg-primary/10': form.realms_id === realm.id,
+                  }"
+                >
+                  <div class="font-medium">{{ realm.name }}</div>
+                  <div
+                    v-if="realm.description"
+                    class="text-sm text-muted-foreground"
+                  >
+                    {{ realm.description }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Spell Selection -->
+            <div v-if="form.realms_id > 0">
+              <Label>Spell *</Label>
+              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div
+                  v-for="spell in filteredSpells"
+                  :key="spell.id"
+                  @click="selectSpell(spell)"
+                  class="p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                  :class="{
+                    'border-primary bg-primary/10': form.spell_id === spell.id,
+                  }"
+                >
+                  <div class="font-medium">{{ spell.name }}</div>
+                  <div
+                    v-if="spell.description"
+                    class="text-sm text-muted-foreground"
+                  >
+                    {{ spell.description }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Allocation Display (Auto-selected) -->
+            <div v-if="form.node_id > 0">
+              <Label>Allocation</Label>
+              <div
+                v-if="loadingAllocations"
+                class="mt-2 flex items-center justify-center py-4"
+              >
+                <Loader2 class="h-6 w-6 animate-spin" />
+                <span class="ml-2 text-sm text-muted-foreground">
+                  Selecting random allocation...
+                </span>
+              </div>
+              <div v-else-if="filteredAllocations.length === 0" class="mt-2">
+                <p class="text-sm text-destructive">
+                  No available allocations for this node
+                </p>
+              </div>
+              <div v-else-if="form.allocation_id > 0" class="mt-2">
+                <div class="p-3 border rounded-lg bg-muted/50">
+                  <div class="font-medium">
+                    {{
+                      filteredAllocations.find(
+                        (a) => a.id === form.allocation_id
+                      )?.ip || "Unknown"
+                    }}:{{
+                      filteredAllocations.find(
+                        (a) => a.id === form.allocation_id
+                      )?.port || "Unknown"
+                    }}
+                  </div>
+                  <div
+                    v-if="
+                      filteredAllocations.find(
+                        (a) => a.id === form.allocation_id
+                      )?.ip_alias
+                    "
+                    class="text-sm text-muted-foreground"
+                  >
+                    {{
+                      filteredAllocations.find(
+                        (a) => a.id === form.allocation_id
+                      )?.ip_alias
+                    }}
+                  </div>
+                  <p class="text-xs text-muted-foreground mt-1">
+                    Randomly selected allocation. Click to change:
+                  </p>
+                  <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div
+                      v-for="allocation in filteredAllocations.slice(0, 4)"
+                      :key="allocation.id"
+                      @click="selectAllocation(allocation)"
+                      class="p-2 border rounded cursor-pointer hover:bg-accent transition-colors text-sm"
+                      :class="{
+                        'border-primary bg-primary/10':
+                          form.allocation_id === allocation.id,
+                      }"
+                    >
+                      {{ allocation.ip }}:{{ allocation.port }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Resources -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label for="memory">Memory (MB) *</Label>
+                <Input
+                  id="memory"
+                  v-model.number="form.memory"
+                  type="number"
+                  min="128"
+                  :max="options.available_resources.memory_limit"
+                  class="mt-2"
+                />
+                <p class="text-xs text-muted-foreground mt-1">
+                  Max:
+                  {{ formatBytes(options.available_resources.memory_limit) }}
+                </p>
+              </div>
+              <div>
+                <Label for="cpu">CPU (%) *</Label>
+                <Input
+                  id="cpu"
+                  v-model.number="form.cpu"
+                  type="number"
+                  min="0"
+                  :max="options.available_resources.cpu_limit"
+                  class="mt-2"
+                />
+                <p class="text-xs text-muted-foreground mt-1">
+                  Max:
+                  {{ formatPercentage(options.available_resources.cpu_limit) }}
+                </p>
+              </div>
+              <div>
+                <Label for="disk">Disk (MB) *</Label>
+                <Input
+                  id="disk"
+                  v-model.number="form.disk"
+                  type="number"
+                  min="128"
+                  :max="options.available_resources.disk_limit"
+                  class="mt-2"
+                />
+                <p class="text-xs text-muted-foreground mt-1">
+                  Max: {{ formatBytes(options.available_resources.disk_limit) }}
+                </p>
+              </div>
+            </div>
+
+            <!-- Startup Command -->
+            <div v-if="form.spell_id > 0">
+              <Label for="startup">Startup Command *</Label>
+              <Input
+                id="startup"
+                v-model="form.startup"
+                placeholder="java -jar server.jar"
+                class="mt-2"
+              />
+            </div>
+
+            <!-- Docker Image Selection -->
+            <div v-if="form.spell_id > 0 && availableDockerImages.length > 0">
+              <Label for="docker-image">Docker Image *</Label>
+              <Popover v-model:open="dockerImagePopoverOpen">
+                <PopoverTrigger as-child>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    :aria-expanded="dockerImagePopoverOpen"
+                    class="w-full justify-between mt-2"
+                  >
+                    {{ selectedDockerImage || "Select Docker image..." }}
+                    <ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent class="w-[400px] p-0">
+                  <Command>
+                    <CommandInput placeholder="Search Docker images..." />
+                    <CommandEmpty>No Docker image found.</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        v-for="image in availableDockerImages"
+                        :key="image"
+                        :value="image"
+                        @select="selectDockerImage(image)"
+                      >
+                        <Check
+                          :class="
+                            cn(
+                              'mr-2 h-4 w-4',
+                              selectedDockerImage === image
+                                ? 'opacity-100'
+                                : 'opacity-0'
+                            )
+                          "
+                        />
+                        <div>
+                          <div class="font-medium">{{ image }}</div>
+                          <div class="text-xs text-muted-foreground">
+                            Docker image for this spell
+                          </div>
+                        </div>
+                      </CommandItem>
+                    </CommandGroup>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <p class="text-xs text-muted-foreground mt-1">
+                Select the Docker image for this spell. This will be used to
+                deploy the server.
+              </p>
+            </div>
+            <!-- Fallback if no docker images available -->
+            <div
+              v-else-if="
+                form.spell_id > 0 && availableDockerImages.length === 0
+              "
+            >
+              <Label for="image">Docker Image *</Label>
+              <Input
+                id="image"
+                v-model="form.image"
+                placeholder="quay.io/pterodactyl/core:java"
+                class="mt-2"
+              />
+              <p class="text-xs text-muted-foreground mt-1">
+                Enter the Docker image for this spell.
+              </p>
+            </div>
+
+            <!-- Feature Limits -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label for="database_limit">Database Limit</Label>
+                <Input
+                  id="database_limit"
+                  v-model.number="form.database_limit"
+                  type="number"
+                  min="0"
+                  :max="
+                    options.available_resources.database_limit === 0
+                      ? undefined
+                      : options.available_resources.database_limit
+                  "
+                  placeholder="0"
+                  class="mt-2"
+                />
+                <p class="text-xs text-muted-foreground mt-1">
+                  Maximum number of databases for this server
+                  <span v-if="options.available_resources.database_limit > 0">
+                    (Max available:
+                    {{ options.available_resources.database_limit }})
+                  </span>
+                  <span v-else> (Unlimited) </span>
+                </p>
+              </div>
+              <div>
+                <Label for="allocation_limit">Allocation Limit</Label>
+                <Input
+                  id="allocation_limit"
+                  v-model.number="form.allocation_limit"
+                  type="number"
+                  min="0"
+                  :max="
+                    options.available_resources.allocation_limit === 0
+                      ? undefined
+                      : options.available_resources.allocation_limit
+                  "
+                  placeholder="0"
+                  class="mt-2"
+                />
+                <p class="text-xs text-muted-foreground mt-1">
+                  Maximum number of allocations for this server
+                  <span v-if="options.available_resources.allocation_limit > 0">
+                    (Max available:
+                    {{ options.available_resources.allocation_limit }})
+                  </span>
+                  <span v-else> (Unlimited) </span>
+                </p>
+              </div>
+              <div>
+                <Label for="backup_limit">Backup Limit</Label>
+                <Input
+                  id="backup_limit"
+                  v-model.number="form.backup_limit"
+                  type="number"
+                  min="0"
+                  :max="
+                    options.available_resources.backup_limit === 0
+                      ? undefined
+                      : options.available_resources.backup_limit
+                  "
+                  placeholder="0"
+                  class="mt-2"
+                />
+                <p class="text-xs text-muted-foreground mt-1">
+                  Maximum number of backups for this server
+                  <span v-if="options.available_resources.backup_limit > 0">
+                    (Max available:
+                    {{ options.available_resources.backup_limit }})
+                  </span>
+                  <span v-else> (Unlimited) </span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <!-- Create Button -->
+        <div class="flex justify-end">
+          <Button
+            @click="handleCreate"
+            :disabled="!canCreate || creating"
+            size="lg"
+          >
+            <Loader2 v-if="creating" class="h-4 w-4 mr-2 animate-spin" />
+            <Plus v-else class="h-4 w-4 mr-2" />
+            Create Server
+          </Button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>

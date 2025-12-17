@@ -1,0 +1,27 @@
+{
+  "client": {
+    "/billingresourcesnewservers": {
+      "name": "Create Server",
+      "icon": "➕",
+      "showBadge": false,
+      "redirect": "/billingresourcesnewservers",
+      "component": "/billingresourcesnewservers/dist/client.html",
+      "description": "Create a new server using your resources",
+      "category": "client",
+      "group": "Overview"
+    }
+  },
+  "admin": {
+    "/billingresourcesnewservers": {
+      "name": "New Server Settings",
+      "icon": "⚙️",
+      "showBadge": false,
+      "redirect": "/billingresourcesnewservers",
+      "component": "/billingresourcesnewservers/dist/admin.html",
+      "description": "Configure user server creation settings",
+      "category": "admin",
+      "group": "Billing"
+    }
+  },
+  "server": {}
+}
