@@ -216,4 +216,3 @@ class UserPermission
         return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     }
 }
-

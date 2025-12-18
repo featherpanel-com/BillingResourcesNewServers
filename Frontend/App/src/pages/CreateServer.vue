@@ -967,7 +967,7 @@ onMounted(() => {
         </Card>
 
         <!-- Create Button -->
-        <div class="flex justify-end">
+        <div class="flex justify-end mt-8 mb-12 pb-8 md:mb-16 md:pb-12">
           <Button @click="handleCreate" :disabled="creating" size="lg">
             <Loader2 v-if="creating" class="h-4 w-4 mr-2 animate-spin" />
             <Plus v-else class="h-4 w-4 mr-2" />
