@@ -419,496 +419,548 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="w-full h-full overflow-auto p-4">
-    <div class="container mx-auto max-w-5xl">
-      <div class="mb-6">
-        <h1 class="text-2xl font-semibold">Create New Server</h1>
-        <p class="text-sm text-muted-foreground">
-          Create a new server using your available resources
-        </p>
-      </div>
-
-      <div
-        v-if="loading && !options"
-        class="flex items-center justify-center py-12"
-      >
-        <Loader2 class="h-8 w-8 animate-spin" />
-      </div>
-
-      <div v-else-if="error" class="mb-6">
-        <Card class="p-6 border-destructive">
-          <div class="flex items-center gap-3">
-            <AlertCircle class="h-5 w-5 text-destructive" />
-            <div>
-              <h3 class="font-semibold text-destructive">Error</h3>
-              <p class="text-sm text-muted-foreground">{{ error }}</p>
-            </div>
+  <div class="min-h-screen p-4 md:p-8">
+    <div class="max-w-5xl mx-auto space-y-8">
+      <!-- Header Section -->
+      <div class="text-center space-y-4">
+        <div class="flex items-center justify-center gap-3">
+          <div class="relative">
+            <div
+              class="absolute inset-0 bg-primary/20 blur-2xl rounded-full"
+            ></div>
+            <Server class="relative h-12 w-12 text-primary" />
           </div>
-        </Card>
+        </div>
+        <div>
+          <h1
+            class="text-5xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent"
+          >
+            Create New Server
+          </h1>
+          <p class="text-lg text-muted-foreground mt-2">
+            Create a new server using your available resources
+          </p>
+        </div>
       </div>
+
+      <Card
+        v-if="loading && !options"
+        class="p-8 md:p-10 border-2 shadow-xl bg-card/50 backdrop-blur-sm"
+      >
+        <div class="flex items-center justify-center py-12">
+          <Loader2 class="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </Card>
+
+      <Card
+        v-else-if="error"
+        class="p-8 md:p-10 border-2 border-destructive/50 bg-destructive/5"
+      >
+        <div class="flex items-center gap-3">
+          <AlertCircle class="h-6 w-6 text-destructive" />
+          <div>
+            <h3 class="font-semibold text-destructive">Error</h3>
+            <p class="text-sm text-muted-foreground">{{ error }}</p>
+          </div>
+        </div>
+      </Card>
 
       <div v-else-if="options" class="space-y-6">
         <!-- Available Resources Summary -->
-        <Card class="p-6">
-          <div class="flex items-center gap-2 mb-4">
-            <CheckCircle2 class="h-5 w-5 text-primary" />
-            <h2 class="text-lg font-semibold">Available Resources</h2>
-          </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div class="p-4 border rounded-lg">
-              <div class="flex items-center gap-2 mb-2">
-                <HardDrive class="h-4 w-4 text-muted-foreground" />
-                <span class="text-sm text-muted-foreground">Memory</span>
+        <Card
+          class="p-8 md:p-10 border-2 shadow-xl bg-card/50 backdrop-blur-sm"
+        >
+          <div class="space-y-4">
+            <div class="flex items-center gap-3 mb-4">
+              <div class="p-2 rounded-lg bg-primary/10">
+                <CheckCircle2 class="h-6 w-6 text-primary" />
               </div>
-              <div class="text-xl font-bold">
-                {{ formatBytes(options.available_resources.memory_limit) }}
-              </div>
-            </div>
-            <div class="p-4 border rounded-lg">
-              <div class="flex items-center gap-2 mb-2">
-                <Cpu class="h-4 w-4 text-muted-foreground" />
-                <span class="text-sm text-muted-foreground">CPU</span>
-              </div>
-              <div class="text-xl font-bold">
-                {{ formatPercentage(options.available_resources.cpu_limit) }}
+              <div>
+                <h2 class="text-2xl font-bold">Available Resources</h2>
+                <p class="text-sm text-muted-foreground">
+                  Resources available for server creation
+                </p>
               </div>
             </div>
-            <div class="p-4 border rounded-lg">
-              <div class="flex items-center gap-2 mb-2">
-                <Database class="h-4 w-4 text-muted-foreground" />
-                <span class="text-sm text-muted-foreground">Disk</span>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div class="p-4 border rounded-lg">
+                <div class="flex items-center gap-2 mb-2">
+                  <HardDrive class="h-4 w-4 text-muted-foreground" />
+                  <span class="text-sm text-muted-foreground">Memory</span>
+                </div>
+                <div class="text-xl font-bold">
+                  {{ formatBytes(options.available_resources.memory_limit) }}
+                </div>
               </div>
-              <div class="text-xl font-bold">
-                {{ formatBytes(options.available_resources.disk_limit) }}
+              <div class="p-4 border rounded-lg">
+                <div class="flex items-center gap-2 mb-2">
+                  <Cpu class="h-4 w-4 text-muted-foreground" />
+                  <span class="text-sm text-muted-foreground">CPU</span>
+                </div>
+                <div class="text-xl font-bold">
+                  {{ formatPercentage(options.available_resources.cpu_limit) }}
+                </div>
               </div>
-            </div>
-            <div class="p-4 border rounded-lg">
-              <div class="flex items-center gap-2 mb-2">
-                <Server class="h-4 w-4 text-muted-foreground" />
-                <span class="text-sm text-muted-foreground">Servers</span>
+              <div class="p-4 border rounded-lg">
+                <div class="flex items-center gap-2 mb-2">
+                  <Database class="h-4 w-4 text-muted-foreground" />
+                  <span class="text-sm text-muted-foreground">Disk</span>
+                </div>
+                <div class="text-xl font-bold">
+                  {{ formatBytes(options.available_resources.disk_limit) }}
+                </div>
               </div>
-              <div class="text-xl font-bold">
-                {{ options.available_resources.server_limit }}
-              </div>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4">
-            <div class="p-4 border rounded-lg">
-              <div class="flex items-center gap-2 mb-2">
-                <Database class="h-4 w-4 text-muted-foreground" />
-                <span class="text-sm text-muted-foreground">Databases</span>
-              </div>
-              <div class="text-xl font-bold">
-                {{
-                  options.available_resources.database_limit === 0
-                    ? "∞"
-                    : options.available_resources.database_limit
-                }}
-              </div>
-            </div>
-            <div class="p-4 border rounded-lg">
-              <div class="flex items-center gap-2 mb-2">
-                <Server class="h-4 w-4 text-muted-foreground" />
-                <span class="text-sm text-muted-foreground">Allocations</span>
-              </div>
-              <div class="text-xl font-bold">
-                {{
-                  options.available_resources.allocation_limit === 0
-                    ? "∞"
-                    : options.available_resources.allocation_limit
-                }}
+              <div class="p-4 border rounded-lg">
+                <div class="flex items-center gap-2 mb-2">
+                  <Server class="h-4 w-4 text-muted-foreground" />
+                  <span class="text-sm text-muted-foreground">Servers</span>
+                </div>
+                <div class="text-xl font-bold">
+                  {{ options.available_resources.server_limit }}
+                </div>
               </div>
             </div>
-            <div class="p-4 border rounded-lg">
-              <div class="flex items-center gap-2 mb-2">
-                <Database class="h-4 w-4 text-muted-foreground" />
-                <span class="text-sm text-muted-foreground">Backups</span>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4">
+              <div class="p-4 border rounded-lg">
+                <div class="flex items-center gap-2 mb-2">
+                  <Database class="h-4 w-4 text-muted-foreground" />
+                  <span class="text-sm text-muted-foreground">Databases</span>
+                </div>
+                <div class="text-xl font-bold">
+                  {{
+                    options.available_resources.database_limit === 0
+                      ? "∞"
+                      : options.available_resources.database_limit
+                  }}
+                </div>
               </div>
-              <div class="text-xl font-bold">
-                {{
-                  options.available_resources.backup_limit === 0
-                    ? "∞"
-                    : options.available_resources.backup_limit
-                }}
+              <div class="p-4 border rounded-lg">
+                <div class="flex items-center gap-2 mb-2">
+                  <Server class="h-4 w-4 text-muted-foreground" />
+                  <span class="text-sm text-muted-foreground">Allocations</span>
+                </div>
+                <div class="text-xl font-bold">
+                  {{
+                    options.available_resources.allocation_limit === 0
+                      ? "∞"
+                      : options.available_resources.allocation_limit
+                  }}
+                </div>
+              </div>
+              <div class="p-4 border rounded-lg">
+                <div class="flex items-center gap-2 mb-2">
+                  <Database class="h-4 w-4 text-muted-foreground" />
+                  <span class="text-sm text-muted-foreground">Backups</span>
+                </div>
+                <div class="text-xl font-bold">
+                  {{
+                    options.available_resources.backup_limit === 0
+                      ? "∞"
+                      : options.available_resources.backup_limit
+                  }}
+                </div>
               </div>
             </div>
           </div>
         </Card>
 
         <!-- Server Creation Form -->
-        <Card class="p-6">
-          <h2 class="text-lg font-semibold mb-6">Server Configuration</h2>
-
+        <Card
+          class="p-8 md:p-10 border-2 shadow-xl bg-card/50 backdrop-blur-sm"
+        >
           <div class="space-y-6">
-            <!-- Server Name -->
-            <div>
-              <Label for="name">Server Name *</Label>
-              <Input
-                id="name"
-                v-model="form.name"
-                placeholder="My Awesome Server"
-                class="mt-2"
-              />
-            </div>
-
-            <!-- Description -->
-            <div>
-              <Label for="description">Description</Label>
-              <Input
-                id="description"
-                v-model="form.description"
-                placeholder="Optional server description"
-                class="mt-2"
-              />
-            </div>
-
-            <!-- Location Selection -->
-            <div>
-              <Label>Location *</Label>
-              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                <div
-                  v-for="location in options.locations"
-                  :key="location.id"
-                  @click="selectLocation(location)"
-                  class="p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
-                  :class="{
-                    'border-primary bg-primary/10':
-                      form.location_id && form.location_id === location.id,
-                  }"
-                >
-                  <div class="font-medium">{{ location.name }}</div>
-                  <div
-                    v-if="location.description"
-                    class="text-sm text-muted-foreground"
-                  >
-                    {{ location.description }}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Node Selection -->
-            <div v-if="form.location_id && form.location_id > 0">
-              <Label>Node *</Label>
-              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                <div
-                  v-for="node in filteredNodes"
-                  :key="node.id"
-                  @click="selectNode(node)"
-                  class="p-3 border rounded-lg transition-colors"
-                  :class="{
-                    'border-primary bg-primary/10': form.node_id === node.id,
-                    'cursor-pointer hover:bg-accent': node.allowed !== false,
-                    'cursor-not-allowed opacity-50 bg-muted':
-                      node.allowed === false,
-                  }"
-                >
-                  <div class="flex items-center justify-between">
-                    <div class="font-medium">{{ node.name }}</div>
-                    <AlertCircle
-                      v-if="node.allowed === false"
-                      class="h-4 w-4 text-destructive"
-                    />
-                  </div>
-                  <div class="text-sm text-muted-foreground">
-                    {{ node.fqdn }}
-                  </div>
-                  <div
-                    v-if="node.allowed === false && node.error_message"
-                    class="text-xs text-destructive mt-1"
-                  >
-                    {{ node.error_message }}
-                  </div>
-                </div>
-              </div>
-              <p
-                v-if="filteredNodes.length === 0"
-                class="text-sm text-muted-foreground mt-2"
-              >
-                No nodes available in this location
-              </p>
-            </div>
-
-            <!-- Realm Selection -->
-            <div>
-              <Label>Realm *</Label>
-              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                <div
-                  v-for="realm in options.realms"
-                  :key="realm.id"
-                  @click="selectRealm(realm)"
-                  class="p-3 border rounded-lg transition-colors"
-                  :class="{
-                    'border-primary bg-primary/10': form.realms_id === realm.id,
-                    'cursor-pointer hover:bg-accent': realm.allowed !== false,
-                    'cursor-not-allowed opacity-50 bg-muted':
-                      realm.allowed === false,
-                  }"
-                >
-                  <div class="flex items-center justify-between">
-                    <div class="font-medium">{{ realm.name }}</div>
-                    <AlertCircle
-                      v-if="realm.allowed === false"
-                      class="h-4 w-4 text-destructive"
-                    />
-                  </div>
-                  <div
-                    v-if="realm.description"
-                    class="text-sm text-muted-foreground"
-                  >
-                    {{ realm.description }}
-                  </div>
-                  <div
-                    v-if="realm.allowed === false && realm.error_message"
-                    class="text-xs text-destructive mt-1"
-                  >
-                    {{ realm.error_message }}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Spell Selection -->
-            <div v-if="form.realms_id > 0">
-              <Label>Spell *</Label>
-              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                <div
-                  v-for="spell in filteredSpells"
-                  :key="spell.id"
-                  @click="selectSpell(spell)"
-                  class="p-3 border rounded-lg transition-colors"
-                  :class="{
-                    'border-primary bg-primary/10': form.spell_id === spell.id,
-                    'cursor-pointer hover:bg-accent': spell.allowed !== false,
-                    'cursor-not-allowed opacity-50 bg-muted':
-                      spell.allowed === false,
-                  }"
-                >
-                  <div class="flex items-center justify-between">
-                    <div class="font-medium">{{ spell.name }}</div>
-                    <AlertCircle
-                      v-if="spell.allowed === false"
-                      class="h-4 w-4 text-destructive"
-                    />
-                  </div>
-                  <div
-                    v-if="spell.description"
-                    class="text-sm text-muted-foreground"
-                  >
-                    {{ spell.description }}
-                  </div>
-                  <div
-                    v-if="spell.allowed === false && spell.error_message"
-                    class="text-xs text-destructive mt-1"
-                  >
-                    {{ spell.error_message }}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Resources -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label for="memory">Memory (MB) *</Label>
-                <Input
-                  id="memory"
-                  v-model.number="form.memory"
-                  type="number"
-                  min="128"
-                  :max="options.available_resources.memory_limit"
-                  class="mt-2"
-                />
-                <p class="text-xs text-muted-foreground mt-1">
-                  Max:
-                  {{ formatBytes(options.available_resources.memory_limit) }}
-                </p>
+            <div class="flex items-center gap-3 mb-4">
+              <div class="p-2 rounded-lg bg-primary/10">
+                <Server class="h-6 w-6 text-primary" />
               </div>
               <div>
-                <Label for="cpu">CPU (%) *</Label>
-                <Input
-                  id="cpu"
-                  v-model.number="form.cpu"
-                  type="number"
-                  min="0"
-                  :max="options.available_resources.cpu_limit"
-                  class="mt-2"
-                />
-                <p class="text-xs text-muted-foreground mt-1">
-                  Max:
-                  {{ formatPercentage(options.available_resources.cpu_limit) }}
-                </p>
-              </div>
-              <div>
-                <Label for="disk">Disk (MB) *</Label>
-                <Input
-                  id="disk"
-                  v-model.number="form.disk"
-                  type="number"
-                  min="128"
-                  :max="options.available_resources.disk_limit"
-                  class="mt-2"
-                />
-                <p class="text-xs text-muted-foreground mt-1">
-                  Max: {{ formatBytes(options.available_resources.disk_limit) }}
+                <h2 class="text-2xl font-bold">Server Configuration</h2>
+                <p class="text-sm text-muted-foreground">
+                  Configure your new server settings
                 </p>
               </div>
             </div>
 
-            <!-- Startup Command -->
-            <div v-if="form.spell_id > 0">
-              <Label for="startup">Startup Command *</Label>
-              <Input
-                id="startup"
-                v-model="form.startup"
-                placeholder="java -jar server.jar"
-                class="mt-2"
-              />
-            </div>
+            <div class="space-y-6">
+              <!-- Server Name -->
+              <div>
+                <Label for="name">Server Name *</Label>
+                <Input
+                  id="name"
+                  v-model="form.name"
+                  placeholder="My Awesome Server"
+                  class="mt-2"
+                />
+              </div>
 
-            <!-- Docker Image Selection -->
-            <div v-if="form.spell_id > 0 && availableDockerImages.length > 0">
-              <Label for="docker-image">Docker Image *</Label>
-              <Popover v-model:open="dockerImagePopoverOpen">
-                <PopoverTrigger as-child>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    :aria-expanded="dockerImagePopoverOpen"
-                    class="w-full justify-between mt-2"
+              <!-- Description -->
+              <div>
+                <Label for="description">Description</Label>
+                <Input
+                  id="description"
+                  v-model="form.description"
+                  placeholder="Optional server description"
+                  class="mt-2"
+                />
+              </div>
+
+              <!-- Location Selection -->
+              <div>
+                <Label>Location *</Label>
+                <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div
+                    v-for="location in options.locations"
+                    :key="location.id"
+                    @click="selectLocation(location)"
+                    class="p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors"
+                    :class="{
+                      'border-primary bg-primary/10':
+                        form.location_id && form.location_id === location.id,
+                    }"
                   >
-                    {{ selectedDockerImage || "Select Docker image..." }}
-                    <ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent class="w-[400px] p-0">
-                  <Command>
-                    <CommandInput placeholder="Search Docker images..." />
-                    <CommandEmpty>No Docker image found.</CommandEmpty>
-                    <CommandGroup>
-                      <CommandItem
-                        v-for="image in availableDockerImages"
-                        :key="image"
-                        :value="image"
-                        @select="selectDockerImage(image)"
-                      >
-                        <Check
-                          :class="
-                            cn(
-                              'mr-2 h-4 w-4',
-                              selectedDockerImage === image
-                                ? 'opacity-100'
-                                : 'opacity-0'
-                            )
-                          "
-                        />
-                        <div>
-                          <div class="font-medium">{{ image }}</div>
-                          <div class="text-xs text-muted-foreground">
-                            Docker image for this spell
+                    <div class="font-medium">{{ location.name }}</div>
+                    <div
+                      v-if="location.description"
+                      class="text-sm text-muted-foreground"
+                    >
+                      {{ location.description }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Node Selection -->
+              <div v-if="form.location_id && form.location_id > 0">
+                <Label>Node *</Label>
+                <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div
+                    v-for="node in filteredNodes"
+                    :key="node.id"
+                    @click="selectNode(node)"
+                    class="p-3 border rounded-lg transition-colors"
+                    :class="{
+                      'border-primary bg-primary/10': form.node_id === node.id,
+                      'cursor-pointer hover:bg-accent': node.allowed !== false,
+                      'cursor-not-allowed opacity-50 bg-muted':
+                        node.allowed === false,
+                    }"
+                  >
+                    <div class="flex items-center justify-between">
+                      <div class="font-medium">{{ node.name }}</div>
+                      <AlertCircle
+                        v-if="node.allowed === false"
+                        class="h-4 w-4 text-destructive"
+                      />
+                    </div>
+                    <div class="text-sm text-muted-foreground">
+                      {{ node.fqdn }}
+                    </div>
+                    <div
+                      v-if="node.allowed === false && node.error_message"
+                      class="text-xs text-destructive mt-1"
+                    >
+                      {{ node.error_message }}
+                    </div>
+                  </div>
+                </div>
+                <p
+                  v-if="filteredNodes.length === 0"
+                  class="text-sm text-muted-foreground mt-2"
+                >
+                  No nodes available in this location
+                </p>
+              </div>
+
+              <!-- Realm Selection -->
+              <div>
+                <Label>Realm *</Label>
+                <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div
+                    v-for="realm in options.realms"
+                    :key="realm.id"
+                    @click="selectRealm(realm)"
+                    class="p-3 border rounded-lg transition-colors"
+                    :class="{
+                      'border-primary bg-primary/10':
+                        form.realms_id === realm.id,
+                      'cursor-pointer hover:bg-accent': realm.allowed !== false,
+                      'cursor-not-allowed opacity-50 bg-muted':
+                        realm.allowed === false,
+                    }"
+                  >
+                    <div class="flex items-center justify-between">
+                      <div class="font-medium">{{ realm.name }}</div>
+                      <AlertCircle
+                        v-if="realm.allowed === false"
+                        class="h-4 w-4 text-destructive"
+                      />
+                    </div>
+                    <div
+                      v-if="realm.description"
+                      class="text-sm text-muted-foreground"
+                    >
+                      {{ realm.description }}
+                    </div>
+                    <div
+                      v-if="realm.allowed === false && realm.error_message"
+                      class="text-xs text-destructive mt-1"
+                    >
+                      {{ realm.error_message }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Spell Selection -->
+              <div v-if="form.realms_id > 0">
+                <Label>Spell *</Label>
+                <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div
+                    v-for="spell in filteredSpells"
+                    :key="spell.id"
+                    @click="selectSpell(spell)"
+                    class="p-3 border rounded-lg transition-colors"
+                    :class="{
+                      'border-primary bg-primary/10':
+                        form.spell_id === spell.id,
+                      'cursor-pointer hover:bg-accent': spell.allowed !== false,
+                      'cursor-not-allowed opacity-50 bg-muted':
+                        spell.allowed === false,
+                    }"
+                  >
+                    <div class="flex items-center justify-between">
+                      <div class="font-medium">{{ spell.name }}</div>
+                      <AlertCircle
+                        v-if="spell.allowed === false"
+                        class="h-4 w-4 text-destructive"
+                      />
+                    </div>
+                    <div
+                      v-if="spell.description"
+                      class="text-sm text-muted-foreground"
+                    >
+                      {{ spell.description }}
+                    </div>
+                    <div
+                      v-if="spell.allowed === false && spell.error_message"
+                      class="text-xs text-destructive mt-1"
+                    >
+                      {{ spell.error_message }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Resources -->
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label for="memory">Memory (MB) *</Label>
+                  <Input
+                    id="memory"
+                    v-model.number="form.memory"
+                    type="number"
+                    min="128"
+                    :max="options.available_resources.memory_limit"
+                    class="mt-2"
+                  />
+                  <p class="text-xs text-muted-foreground mt-1">
+                    Max:
+                    {{ formatBytes(options.available_resources.memory_limit) }}
+                  </p>
+                </div>
+                <div>
+                  <Label for="cpu">CPU (%) *</Label>
+                  <Input
+                    id="cpu"
+                    v-model.number="form.cpu"
+                    type="number"
+                    min="0"
+                    :max="options.available_resources.cpu_limit"
+                    class="mt-2"
+                  />
+                  <p class="text-xs text-muted-foreground mt-1">
+                    Max:
+                    {{
+                      formatPercentage(options.available_resources.cpu_limit)
+                    }}
+                  </p>
+                </div>
+                <div>
+                  <Label for="disk">Disk (MB) *</Label>
+                  <Input
+                    id="disk"
+                    v-model.number="form.disk"
+                    type="number"
+                    min="128"
+                    :max="options.available_resources.disk_limit"
+                    class="mt-2"
+                  />
+                  <p class="text-xs text-muted-foreground mt-1">
+                    Max:
+                    {{ formatBytes(options.available_resources.disk_limit) }}
+                  </p>
+                </div>
+              </div>
+
+              <!-- Startup Command -->
+              <div v-if="form.spell_id > 0">
+                <Label for="startup">Startup Command *</Label>
+                <Input
+                  id="startup"
+                  v-model="form.startup"
+                  placeholder="java -jar server.jar"
+                  class="mt-2"
+                />
+              </div>
+
+              <!-- Docker Image Selection -->
+              <div v-if="form.spell_id > 0 && availableDockerImages.length > 0">
+                <Label for="docker-image">Docker Image *</Label>
+                <Popover v-model:open="dockerImagePopoverOpen">
+                  <PopoverTrigger as-child>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      :aria-expanded="dockerImagePopoverOpen"
+                      class="w-full justify-between mt-2"
+                    >
+                      {{ selectedDockerImage || "Select Docker image..." }}
+                      <ChevronsUpDown
+                        class="ml-2 h-4 w-4 shrink-0 opacity-50"
+                      />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent class="w-[400px] p-0">
+                    <Command>
+                      <CommandInput placeholder="Search Docker images..." />
+                      <CommandEmpty>No Docker image found.</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          v-for="image in availableDockerImages"
+                          :key="image"
+                          :value="image"
+                          @select="selectDockerImage(image)"
+                        >
+                          <Check
+                            :class="
+                              cn(
+                                'mr-2 h-4 w-4',
+                                selectedDockerImage === image
+                                  ? 'opacity-100'
+                                  : 'opacity-0'
+                              )
+                            "
+                          />
+                          <div>
+                            <div class="font-medium">{{ image }}</div>
+                            <div class="text-xs text-muted-foreground">
+                              Docker image for this spell
+                            </div>
                           </div>
-                        </div>
-                      </CommandItem>
-                    </CommandGroup>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-              <p class="text-xs text-muted-foreground mt-1">
-                Select the Docker image for this spell. This will be used to
-                deploy the server.
-              </p>
-            </div>
-            <!-- Fallback if no docker images available -->
-            <div
-              v-else-if="
-                form.spell_id > 0 && availableDockerImages.length === 0
-              "
-            >
-              <Label for="image">Docker Image *</Label>
-              <Input
-                id="image"
-                v-model="form.image"
-                placeholder="quay.io/pterodactyl/core:java"
-                class="mt-2"
-              />
-              <p class="text-xs text-muted-foreground mt-1">
-                Enter the Docker image for this spell.
-              </p>
-            </div>
+                        </CommandItem>
+                      </CommandGroup>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                <p class="text-xs text-muted-foreground mt-1">
+                  Select the Docker image for this spell. This will be used to
+                  deploy the server.
+                </p>
+              </div>
+              <!-- Fallback if no docker images available -->
+              <div
+                v-else-if="
+                  form.spell_id > 0 && availableDockerImages.length === 0
+                "
+              >
+                <Label for="image">Docker Image *</Label>
+                <Input
+                  id="image"
+                  v-model="form.image"
+                  placeholder="quay.io/pterodactyl/core:java"
+                  class="mt-2"
+                />
+                <p class="text-xs text-muted-foreground mt-1">
+                  Enter the Docker image for this spell.
+                </p>
+              </div>
 
-            <!-- Feature Limits -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label for="database_limit">Database Limit</Label>
-                <Input
-                  id="database_limit"
-                  v-model.number="form.database_limit"
-                  type="number"
-                  min="0"
-                  :max="
-                    options.available_resources.database_limit === 0
-                      ? undefined
-                      : options.available_resources.database_limit
-                  "
-                  placeholder="0"
-                  class="mt-2"
-                />
-                <p class="text-xs text-muted-foreground mt-1">
-                  Maximum number of databases for this server
-                  <span v-if="options.available_resources.database_limit > 0">
-                    (Max available:
-                    {{ options.available_resources.database_limit }})
-                  </span>
-                  <span v-else> (Unlimited) </span>
-                </p>
-              </div>
-              <div>
-                <Label for="allocation_limit">Allocation Limit</Label>
-                <Input
-                  id="allocation_limit"
-                  v-model.number="form.allocation_limit"
-                  type="number"
-                  min="0"
-                  :max="
-                    options.available_resources.allocation_limit === 0
-                      ? undefined
-                      : options.available_resources.allocation_limit
-                  "
-                  placeholder="0"
-                  class="mt-2"
-                />
-                <p class="text-xs text-muted-foreground mt-1">
-                  Maximum number of allocations for this server
-                  <span v-if="options.available_resources.allocation_limit > 0">
-                    (Max available:
-                    {{ options.available_resources.allocation_limit }})
-                  </span>
-                  <span v-else> (Unlimited) </span>
-                </p>
-              </div>
-              <div>
-                <Label for="backup_limit">Backup Limit</Label>
-                <Input
-                  id="backup_limit"
-                  v-model.number="form.backup_limit"
-                  type="number"
-                  min="0"
-                  :max="
-                    options.available_resources.backup_limit === 0
-                      ? undefined
-                      : options.available_resources.backup_limit
-                  "
-                  placeholder="0"
-                  class="mt-2"
-                />
-                <p class="text-xs text-muted-foreground mt-1">
-                  Maximum number of backups for this server
-                  <span v-if="options.available_resources.backup_limit > 0">
-                    (Max available:
-                    {{ options.available_resources.backup_limit }})
-                  </span>
-                  <span v-else> (Unlimited) </span>
-                </p>
+              <!-- Feature Limits -->
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label for="database_limit">Database Limit</Label>
+                  <Input
+                    id="database_limit"
+                    v-model.number="form.database_limit"
+                    type="number"
+                    min="0"
+                    :max="
+                      options.available_resources.database_limit === 0
+                        ? undefined
+                        : options.available_resources.database_limit
+                    "
+                    placeholder="0"
+                    class="mt-2"
+                  />
+                  <p class="text-xs text-muted-foreground mt-1">
+                    Maximum number of databases for this server
+                    <span v-if="options.available_resources.database_limit > 0">
+                      (Max available:
+                      {{ options.available_resources.database_limit }})
+                    </span>
+                    <span v-else> (Unlimited) </span>
+                  </p>
+                </div>
+                <div>
+                  <Label for="allocation_limit">Allocation Limit</Label>
+                  <Input
+                    id="allocation_limit"
+                    v-model.number="form.allocation_limit"
+                    type="number"
+                    min="0"
+                    :max="
+                      options.available_resources.allocation_limit === 0
+                        ? undefined
+                        : options.available_resources.allocation_limit
+                    "
+                    placeholder="0"
+                    class="mt-2"
+                  />
+                  <p class="text-xs text-muted-foreground mt-1">
+                    Maximum number of allocations for this server
+                    <span
+                      v-if="options.available_resources.allocation_limit > 0"
+                    >
+                      (Max available:
+                      {{ options.available_resources.allocation_limit }})
+                    </span>
+                    <span v-else> (Unlimited) </span>
+                  </p>
+                </div>
+                <div>
+                  <Label for="backup_limit">Backup Limit</Label>
+                  <Input
+                    id="backup_limit"
+                    v-model.number="form.backup_limit"
+                    type="number"
+                    min="0"
+                    :max="
+                      options.available_resources.backup_limit === 0
+                        ? undefined
+                        : options.available_resources.backup_limit
+                    "
+                    placeholder="0"
+                    class="mt-2"
+                  />
+                  <p class="text-xs text-muted-foreground mt-1">
+                    Maximum number of backups for this server
+                    <span v-if="options.available_resources.backup_limit > 0">
+                      (Max available:
+                      {{ options.available_resources.backup_limit }})
+                    </span>
+                    <span v-else> (Unlimited) </span>
+                  </p>
+                </div>
               </div>
             </div>
           </div>

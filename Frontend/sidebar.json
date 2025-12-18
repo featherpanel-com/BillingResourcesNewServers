@@ -1,10 +1,10 @@
 {
   "client": {
-    "/billingresourcesnewservers": {
+    "/server/create": {
       "name": "Create Server",
       "icon": "➕",
       "showBadge": false,
-      "redirect": "/billingresourcesnewservers",
+      "redirect": "/server/create",
       "component": "/billingresourcesnewservers/dist/client.html",
       "description": "Create a new server using your resources",
       "category": "client",
