@@ -24,6 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import {
   Loader2,
@@ -38,6 +39,8 @@ import {
   Users,
   Edit,
   X as XIcon,
+  Info,
+  AlertCircle,
 } from "lucide-vue-next";
 import {
   useUserPermissionsAPI,
@@ -53,15 +56,25 @@ import {
 } from "@/composables/useGroupsAPI";
 import { useToast } from "vue-toastification";
 import axios from "axios";
-import type { AxiosError } from "axios";
 
 const toast = useToast();
+
+function getApiErrorMessage(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data as
+      | { error_message?: string; message?: string }
+      | undefined;
+    return data?.error_message || data?.message || err.message || fallback;
+  }
+  return err instanceof Error ? err.message : fallback;
+}
 const { loading, error, getUserPermissions, addPermission, deletePermission } =
   useUserPermissionsAPI();
 const {
   loading: groupsLoading,
   getGroups,
   getGroup,
+  getUserGroups,
   createGroup,
   updateGroup,
   deleteGroup,
@@ -239,8 +252,7 @@ const loadUsers = async () => {
     });
     allUsers.value = response.data?.data?.users || [];
   } catch (err) {
-    const axiosError = err as AxiosError<{ message?: string }>;
-    toast.error(axiosError?.response?.data?.message || "Failed to load users");
+    toast.error(getApiErrorMessage(err, "Failed to load users"));
   }
 };
 
@@ -259,10 +271,7 @@ const loadResources = async () => {
     allRealms.value = realmsRes.data?.data?.realms || [];
     allSpells.value = spellsRes.data?.data?.spells || [];
   } catch (err) {
-    const axiosError = err as AxiosError<{ message?: string }>;
-    toast.error(
-      axiosError?.response?.data?.message || "Failed to load resources"
-    );
+    toast.error(getApiErrorMessage(err, "Failed to load resources"));
   } finally {
     loadingResources.value = false;
   }
@@ -300,9 +309,7 @@ const loadUserPermissions = async () => {
       // If can't load groups, just continue
     }
   } catch (err) {
-    toast.error(
-      err instanceof Error ? err.message : "Failed to load permissions"
-    );
+    toast.error(getApiErrorMessage(err, "Failed to load permissions"));
   }
 };
 
@@ -314,9 +321,7 @@ const handleSetUserGroups = async () => {
     showUserGroupsForm.value = false;
     await loadUserPermissions();
   } catch (err) {
-    toast.error(
-      err instanceof Error ? err.message : "Failed to update user groups"
-    );
+    toast.error(getApiErrorMessage(err, "Failed to update user groups"));
   }
 };
 
@@ -355,9 +360,7 @@ const handleAddPermission = async () => {
     addFormCustomError.value = "";
     addFormOpen.value = false;
   } catch (err) {
-    toast.error(
-      err instanceof Error ? err.message : "Failed to add permission"
-    );
+    toast.error(getApiErrorMessage(err, "Failed to add permission"));
   }
 };
 
@@ -370,9 +373,7 @@ const handleDeletePermission = async (permissionId: number) => {
     toast.success("Permission deleted successfully");
     await loadUserPermissions();
   } catch (err) {
-    toast.error(
-      err instanceof Error ? err.message : "Failed to delete permission"
-    );
+    toast.error(getApiErrorMessage(err, "Failed to delete permission"));
   }
 };
 
@@ -445,8 +446,7 @@ const loadGroups = async () => {
       groups.value = [];
     }
   } catch (err) {
-    console.error("Failed to load groups:", err);
-    toast.error(err instanceof Error ? err.message : "Failed to load groups");
+    toast.error(getApiErrorMessage(err, "Failed to load groups"));
     groups.value = [];
   }
 };
@@ -455,9 +455,7 @@ const loadGroupDetails = async (groupId: number) => {
   try {
     selectedGroup.value = await getGroup(groupId);
   } catch (err) {
-    toast.error(
-      err instanceof Error ? err.message : "Failed to load group details"
-    );
+    toast.error(getApiErrorMessage(err, "Failed to load group details"));
   }
 };
 
@@ -479,7 +477,7 @@ const handleCreateGroup = async () => {
     await loadGroups();
     resetGroupForm();
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : "Failed to create group");
+    toast.error(getApiErrorMessage(err, "Failed to create group"));
   }
 };
 
@@ -507,7 +505,7 @@ const handleUpdateGroup = async () => {
     }
     resetGroupForm();
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : "Failed to update group");
+    toast.error(getApiErrorMessage(err, "Failed to update group"));
   }
 };
 
@@ -528,7 +526,7 @@ const handleDeleteGroup = async (groupId: number) => {
       selectedGroup.value = null;
     }
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : "Failed to delete group");
+    toast.error(getApiErrorMessage(err, "Failed to delete group"));
   }
 };
 
@@ -550,9 +548,7 @@ const handleAddGroupPermission = async () => {
     await loadGroupDetails(selectedGroup.value.id);
     resetGroupPermissionForm();
   } catch (err) {
-    toast.error(
-      err instanceof Error ? err.message : "Failed to add permission"
-    );
+    toast.error(getApiErrorMessage(err, "Failed to add permission"));
   }
 };
 
@@ -587,9 +583,7 @@ const handleUpdateGroupPermission = async () => {
     editPermissionCustomError.value = "";
     await loadGroupDetails(selectedGroup.value.id);
   } catch (err) {
-    toast.error(
-      err instanceof Error ? err.message : "Failed to update permission"
-    );
+    toast.error(getApiErrorMessage(err, "Failed to update permission"));
   }
 };
 
@@ -609,9 +603,7 @@ const handleDeleteGroupPermission = async (
     toast.success("Permission deleted successfully");
     await loadGroupDetails(selectedGroup.value.id);
   } catch (err) {
-    toast.error(
-      err instanceof Error ? err.message : "Failed to delete permission"
-    );
+    toast.error(getApiErrorMessage(err, "Failed to delete permission"));
   }
 };
 
@@ -650,8 +642,12 @@ const selectGroup = async (group: Group) => {
 // Watch for when the user groups form opens to ensure data is loaded
 watch(showUserGroupsForm, async (isOpen) => {
   if (isOpen && userId.value) {
-    // Reload user's groups when form opens
-    await loadUserPermissions();
+    try {
+      const groupIds = await getUserGroups(userId.value);
+      userSelectedGroups.value = groupIds;
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to load user groups"));
+    }
   }
 });
 
@@ -661,17 +657,30 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="w-full h-full overflow-auto p-4">
+  <div class="w-full h-full overflow-auto p-4 md:p-8 min-h-screen">
     <div class="container mx-auto max-w-6xl">
-      <div class="mb-6">
-        <h1 class="text-2xl font-semibold">Permissions Management</h1>
-        <p class="text-sm text-muted-foreground">
+      <div class="mb-6 text-center md:text-left">
+        <h1
+          class="text-3xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent"
+        >
+          Permissions Management
+        </h1>
+        <p class="text-muted-foreground mt-2">
           Manage user permissions and groups for server creation.
         </p>
       </div>
 
+      <Alert class="mb-6 border-2 bg-card/50 backdrop-blur-sm">
+        <Info class="h-4 w-4" />
+        <AlertDescription>
+          <strong>User Permissions</strong> – Assign direct permissions to users (locations, nodes, realms, spells).
+          <strong>Groups</strong> – Create groups and assign permissions to them; users in a group inherit those permissions.
+          Use both for flexible access control.
+        </AlertDescription>
+      </Alert>
+
       <Tabs v-model="activeTab" class="w-full">
-        <TabsList class="mb-6">
+        <TabsList class="mb-6 grid w-full grid-cols-2 bg-muted/30 border border-border/50">
           <TabsTrigger value="users">
             <Users class="mr-2 h-4 w-4" />
             User Permissions
@@ -685,7 +694,7 @@ onMounted(async () => {
         <!-- User Permissions Tab -->
         <TabsContent value="users" class="space-y-6">
           <!-- User Selection -->
-          <Card class="p-6 mb-6">
+          <Card class="p-6 mb-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
             <div class="mb-4">
               <Label class="text-base font-semibold">Select User</Label>
               <p class="text-sm text-muted-foreground mt-1">
@@ -747,7 +756,7 @@ onMounted(async () => {
 
           <!-- Permissions Display -->
           <div v-if="selectedUser && permissions">
-            <Card class="p-6 mb-6">
+            <Card class="p-6 mb-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
               <div class="flex items-center justify-between mb-6">
                 <div>
                   <h2 class="text-lg font-semibold">
@@ -783,7 +792,7 @@ onMounted(async () => {
                     <Label>Resource Type</Label>
                     <select
                       v-model="addFormResourceType"
-                      class="mt-2 w-full px-3 py-2 border rounded-md"
+                      class="mt-2 flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     >
                       <option value="location">Location</option>
                       <option value="node">Node</option>
@@ -902,7 +911,7 @@ onMounted(async () => {
             </Card>
 
             <!-- User Groups Form -->
-            <Card v-if="showUserGroupsForm" class="p-6 mb-6">
+            <Card v-if="showUserGroupsForm" class="p-6 mb-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
               <div class="flex items-center justify-between mb-4">
                 <h3 class="text-base font-semibold">Manage User Groups</h3>
                 <Button
@@ -982,7 +991,7 @@ onMounted(async () => {
             <!-- Permissions List -->
             <div class="space-y-6">
               <!-- Locations -->
-              <Card class="p-6">
+              <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
                 <div class="flex items-center gap-2 mb-4">
                   <MapPin class="h-5 w-5" />
                   <h3 class="text-lg font-semibold">Locations</h3>
@@ -1022,7 +1031,7 @@ onMounted(async () => {
               </Card>
 
               <!-- Nodes -->
-              <Card class="p-6">
+              <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
                 <div class="flex items-center gap-2 mb-4">
                   <Network class="h-5 w-5" />
                   <h3 class="text-lg font-semibold">Nodes</h3>
@@ -1062,7 +1071,7 @@ onMounted(async () => {
               </Card>
 
               <!-- Realms -->
-              <Card class="p-6">
+              <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
                 <div class="flex items-center gap-2 mb-4">
                   <Box class="h-5 w-5" />
                   <h3 class="text-lg font-semibold">Realms</h3>
@@ -1102,7 +1111,7 @@ onMounted(async () => {
               </Card>
 
               <!-- Spells -->
-              <Card class="p-6">
+              <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
                 <div class="flex items-center gap-2 mb-4">
                   <Sparkles class="h-5 w-5" />
                   <h3 class="text-lg font-semibold">Spells</h3>
@@ -1152,15 +1161,16 @@ onMounted(async () => {
           </div>
 
           <!-- Error State -->
-          <div v-if="error && !permissions" class="text-center py-12">
-            <p class="text-lg text-destructive">Error: {{ error }}</p>
-          </div>
+          <Alert v-if="error && !permissions" variant="destructive" class="border-2">
+            <AlertCircle class="h-4 w-4" />
+            <AlertDescription class="font-medium">{{ error }}</AlertDescription>
+          </Alert>
         </TabsContent>
 
         <!-- Groups Tab -->
         <TabsContent value="groups" class="space-y-6">
           <!-- Groups List -->
-          <Card class="p-6">
+          <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
             <div class="flex items-center justify-between mb-4">
               <div>
                 <h2 class="text-lg font-semibold">Groups</h2>
@@ -1314,7 +1324,7 @@ onMounted(async () => {
             >
               <p>No groups found. Create your first group to get started.</p>
               <p class="text-xs mt-2">
-                Debug: groups.length = {{ groups?.length ?? "undefined" }}
+                Groups let you assign permissions to multiple users at once.
               </p>
             </div>
             <div v-else class="space-y-2 mt-6">
@@ -1369,7 +1379,7 @@ onMounted(async () => {
           <!-- Selected Group Details -->
           <div v-if="selectedGroup" class="space-y-6">
             <!-- Group Info -->
-            <Card class="p-6">
+            <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
               <div class="flex items-center justify-between mb-4">
                 <div class="flex items-center gap-3">
                   <div
@@ -1423,7 +1433,7 @@ onMounted(async () => {
                       <select
                         id="resource-type"
                         v-model="groupPermissionResourceType"
-                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       >
                         <option value="location">Location</option>
                         <option value="node">Node</option>
@@ -1544,7 +1554,7 @@ onMounted(async () => {
             <!-- Group Permissions -->
             <div class="space-y-6">
               <!-- Locations -->
-              <Card class="p-6">
+              <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
                 <div class="flex items-center gap-2 mb-4">
                   <MapPin class="h-5 w-5" />
                   <h3 class="text-lg font-semibold">Location Permissions</h3>
@@ -1636,7 +1646,7 @@ onMounted(async () => {
               </Card>
 
               <!-- Nodes -->
-              <Card class="p-6">
+              <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
                 <div class="flex items-center gap-2 mb-4">
                   <Network class="h-5 w-5" />
                   <h3 class="text-lg font-semibold">Node Permissions</h3>
@@ -1725,7 +1735,7 @@ onMounted(async () => {
               </Card>
 
               <!-- Realms -->
-              <Card class="p-6">
+              <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
                 <div class="flex items-center gap-2 mb-4">
                   <Box class="h-5 w-5" />
                   <h3 class="text-lg font-semibold">Realm Permissions</h3>
@@ -1814,7 +1824,7 @@ onMounted(async () => {
               </Card>
 
               <!-- Spells -->
-              <Card class="p-6">
+              <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
                 <div class="flex items-center gap-2 mb-4">
                   <Sparkles class="h-5 w-5" />
                   <h3 class="text-lg font-semibold">Spell Permissions</h3>

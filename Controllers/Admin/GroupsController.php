@@ -667,6 +667,35 @@ class GroupsController
         return ApiResponse::success(null, 'User removed successfully', 200);
     }
 
+    #[OA\Get(
+        path: '/api/admin/billingresourcesnewservers/users/{userId}/groups',
+        summary: 'Get user groups',
+        description: 'Get all groups assigned to a user',
+        tags: ['Admin - Billing Resources New Servers - Groups'],
+        parameters: [
+            new OA\Parameter(name: 'userId', description: 'ID of the user', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Groups retrieved successfully'),
+            new OA\Response(response: 401, description: 'Unauthorized'),
+            new OA\Response(response: 403, description: 'Forbidden'),
+            new OA\Response(response: 404, description: 'User not found'),
+        ]
+    )]
+    public function getUserGroups(Request $request, int $userId): Response
+    {
+        $user = User::getUserById($userId);
+        if (!$user) {
+            return ApiResponse::error('User not found', 'USER_NOT_FOUND', 404);
+        }
+
+        $groupIds = UserGroup::getGroupIdsByUserId($userId);
+
+        return ApiResponse::success([
+            'group_ids' => $groupIds,
+        ], 'User groups retrieved successfully', 200);
+    }
+
     #[OA\Post(
         path: '/api/admin/billingresourcesnewservers/users/{userId}/groups',
         summary: 'Set groups for user',

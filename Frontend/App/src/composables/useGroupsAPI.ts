@@ -1,5 +1,15 @@
 import { ref } from "vue";
-import axios, { type AxiosError } from "axios";
+import axios from "axios";
+
+function extractApiError(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data as
+      | { error_message?: string; message?: string }
+      | undefined;
+    return data?.error_message || data?.message || err.message || fallback;
+  }
+  return err instanceof Error ? err.message : fallback;
+}
 
 export interface Group {
   id: number;
@@ -89,10 +99,9 @@ export function useGroupsAPI() {
       }
       return [];
     } catch (err) {
-      const axiosError = err as AxiosError<{ error_message?: string }>;
-      error.value =
-        axiosError?.response?.data?.error_message || "Failed to fetch groups";
-      throw err;
+      const msg = extractApiError(err, "Failed to fetch groups");
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -107,10 +116,9 @@ export function useGroupsAPI() {
       );
       return response.data?.data;
     } catch (err) {
-      const axiosError = err as AxiosError<{ error_message?: string }>;
-      error.value =
-        axiosError?.response?.data?.error_message || "Failed to fetch group";
-      throw err;
+      const msg = extractApiError(err, "Failed to fetch group");
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -126,10 +134,9 @@ export function useGroupsAPI() {
       );
       return response.data?.data;
     } catch (err) {
-      const axiosError = err as AxiosError<{ error_message?: string }>;
-      error.value =
-        axiosError?.response?.data?.error_message || "Failed to create group";
-      throw err;
+      const msg = extractApiError(err, "Failed to create group");
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -148,10 +155,9 @@ export function useGroupsAPI() {
       );
       return response.data?.data;
     } catch (err) {
-      const axiosError = err as AxiosError<{ error_message?: string }>;
-      error.value =
-        axiosError?.response?.data?.error_message || "Failed to update group";
-      throw err;
+      const msg = extractApiError(err, "Failed to update group");
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -165,10 +171,9 @@ export function useGroupsAPI() {
         `/api/admin/billingresourcesnewservers/groups/${groupId}`
       );
     } catch (err) {
-      const axiosError = err as AxiosError<{ error_message?: string }>;
-      error.value =
-        axiosError?.response?.data?.error_message || "Failed to delete group";
-      throw err;
+      const msg = extractApiError(err, "Failed to delete group");
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -187,11 +192,9 @@ export function useGroupsAPI() {
       );
       return response.data?.data;
     } catch (err) {
-      const axiosError = err as AxiosError<{ error_message?: string }>;
-      error.value =
-        axiosError?.response?.data?.error_message ||
-        "Failed to add group permission";
-      throw err;
+      const msg = extractApiError(err, "Failed to add group permission");
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -212,11 +215,9 @@ export function useGroupsAPI() {
       );
       return response.data?.data || null;
     } catch (err) {
-      const axiosError = err as AxiosError<{ error_message?: string }>;
-      error.value =
-        axiosError?.response?.data?.error_message ||
-        "Failed to update group permission";
-      throw err;
+      const msg = extractApiError(err, "Failed to update group permission");
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -234,11 +235,9 @@ export function useGroupsAPI() {
         `/api/admin/billingresourcesnewservers/groups/${groupId}/permissions/${resourceType}/${resourceId}`
       );
     } catch (err) {
-      const axiosError = err as AxiosError<{ error_message?: string }>;
-      error.value =
-        axiosError?.response?.data?.error_message ||
-        "Failed to delete group permission";
-      throw err;
+      const msg = extractApiError(err, "Failed to delete group permission");
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -285,11 +284,9 @@ export function useGroupsAPI() {
         },
       }));
     } catch (err) {
-      const axiosError = err as AxiosError<{ error_message?: string }>;
-      error.value =
-        axiosError?.response?.data?.error_message ||
-        "Failed to fetch group users";
-      throw err;
+      const msg = extractApiError(err, "Failed to fetch group users");
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -306,11 +303,9 @@ export function useGroupsAPI() {
         `/api/admin/billingresourcesnewservers/groups/${groupId}/users/${userId}`
       );
     } catch (err) {
-      const axiosError = err as AxiosError<{ error_message?: string }>;
-      error.value =
-        axiosError?.response?.data?.error_message ||
-        "Failed to assign user to group";
-      throw err;
+      const msg = extractApiError(err, "Failed to assign user to group");
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -327,11 +322,27 @@ export function useGroupsAPI() {
         `/api/admin/billingresourcesnewservers/groups/${groupId}/users/${userId}`
       );
     } catch (err) {
-      const axiosError = err as AxiosError<{ error_message?: string }>;
-      error.value =
-        axiosError?.response?.data?.error_message ||
-        "Failed to remove user from group";
-      throw err;
+      const msg = extractApiError(err, "Failed to remove user from group");
+      error.value = msg;
+      throw new Error(msg);
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const getUserGroups = async (userId: number): Promise<number[]> => {
+    loading.value = true;
+    error.value = null;
+    try {
+      const response = await axios.get(
+        `/api/admin/billingresourcesnewservers/users/${userId}/groups`
+      );
+      const data = response.data?.data;
+      return Array.isArray(data?.group_ids) ? data.group_ids : [];
+    } catch (err) {
+      const msg = extractApiError(err, "Failed to fetch user groups");
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -349,11 +360,9 @@ export function useGroupsAPI() {
         { group_ids: groupIds }
       );
     } catch (err) {
-      const axiosError = err as AxiosError<{ error_message?: string }>;
-      error.value =
-        axiosError?.response?.data?.error_message ||
-        "Failed to set user groups";
-      throw err;
+      const msg = extractApiError(err, "Failed to set user groups");
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -364,6 +373,7 @@ export function useGroupsAPI() {
     error,
     getGroups,
     getGroup,
+    getUserGroups,
     createGroup,
     updateGroup,
     deleteGroup,

@@ -55,8 +55,8 @@ const resourcePermissions = ref<{
   spell: {},
 });
 
-// Realm filter for spells
-const selectedRealmFilter = ref<number | null>(null);
+// Realm filter for spells ('' = all, number = specific realm)
+const selectedRealmFilter = ref<number | string | null>(null);
 
 // Form state
 const formSettings = ref<PluginSettings>({
@@ -82,12 +82,14 @@ const formSettings = ref<PluginSettings>({
 
 // Filtered spells based on selected realm
 const filteredSpells = computed(() => {
-  if (selectedRealmFilter.value === null) {
+  const filter = selectedRealmFilter.value;
+  if (filter === null || filter === "" || filter === undefined) {
     return allSpells.value;
   }
+  const filterId = typeof filter === "string" ? parseInt(filter, 10) : filter;
   return allSpells.value.filter(
     (s: { id: number; name: string; realm_id: number }) =>
-      s.realm_id === selectedRealmFilter.value
+      s.realm_id === filterId
   );
 });
 
@@ -370,8 +372,8 @@ onMounted(async () => {
         class="space-y-6"
       >
         <!-- Enable/Disable User Creation -->
-        <Card class="p-6">
-          <div class="flex items-center justify-between">
+        <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
+          <div class="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border/50">
             <div class="space-y-1">
               <Label class="text-base font-semibold"
                 >Enable User Server Creation</Label
@@ -381,21 +383,28 @@ onMounted(async () => {
                 resources
               </p>
             </div>
-            <input
-              type="checkbox"
-              :checked="formSettings.user_creation_enabled"
-              @change="
-                formSettings.user_creation_enabled = (
-                  $event.target as HTMLInputElement
-                ).checked
-              "
-              class="h-5 w-5 rounded border-gray-300"
-            />
+            <button
+              type="button"
+              role="switch"
+              :aria-checked="formSettings.user_creation_enabled"
+              @click="formSettings.user_creation_enabled = !formSettings.user_creation_enabled"
+              :class="[
+                'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background',
+                formSettings.user_creation_enabled ? 'bg-primary' : 'bg-muted',
+              ]"
+            >
+              <span
+                class="pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform"
+                :class="
+                  formSettings.user_creation_enabled ? 'translate-x-5' : 'translate-x-0.5'
+                "
+              />
+            </button>
           </div>
         </Card>
 
         <!-- User Restrictions -->
-        <Card class="p-6">
+        <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
           <div class="mb-4">
             <Label class="text-base font-semibold">User Access Control</Label>
             <p class="text-sm text-muted-foreground mt-1">
@@ -450,7 +459,7 @@ onMounted(async () => {
         </Card>
 
         <!-- Minimum Resource Requirements -->
-        <Card class="p-6">
+        <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
           <div class="mb-4">
             <Label class="text-base font-semibold"
               >Minimum Resource Requirements</Label
@@ -462,12 +471,12 @@ onMounted(async () => {
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <Label for="minimum_memory">Minimum Memory (MB)</Label>
-              <input
+              <Input
                 id="minimum_memory"
                 v-model.number="formSettings.minimum_memory"
                 type="number"
                 min="128"
-                class="mt-2 w-full px-3 py-2 border rounded-md"
+                class="mt-2"
               />
               <p class="text-xs text-muted-foreground mt-1">
                 Minimum memory required (default: 128 MB)
@@ -475,12 +484,12 @@ onMounted(async () => {
             </div>
             <div>
               <Label for="minimum_cpu">Minimum CPU (%)</Label>
-              <input
+              <Input
                 id="minimum_cpu"
                 v-model.number="formSettings.minimum_cpu"
                 type="number"
                 min="0"
-                class="mt-2 w-full px-3 py-2 border rounded-md"
+                class="mt-2"
               />
               <p class="text-xs text-muted-foreground mt-1">
                 Minimum CPU required (default: 0%)
@@ -488,12 +497,12 @@ onMounted(async () => {
             </div>
             <div>
               <Label for="minimum_disk">Minimum Disk (MB)</Label>
-              <input
+              <Input
                 id="minimum_disk"
                 v-model.number="formSettings.minimum_disk"
                 type="number"
                 min="128"
-                class="mt-2 w-full px-3 py-2 border rounded-md"
+                class="mt-2"
               />
               <p class="text-xs text-muted-foreground mt-1">
                 Minimum disk required (default: 128 MB)
@@ -503,7 +512,7 @@ onMounted(async () => {
         </Card>
 
         <!-- Allowed Locations -->
-        <Card class="p-6">
+        <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
           <div class="mb-4">
             <div class="flex items-center justify-between mb-2">
               <div class="flex items-center gap-2">
@@ -584,7 +593,7 @@ onMounted(async () => {
                           | 'restricted'
                       )
                     "
-                    class="text-xs px-2 py-1 border rounded bg-background"
+                    class="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     @click.stop
                   >
                     <option value="open">Open</option>
@@ -599,21 +608,20 @@ onMounted(async () => {
                 "
                 class="mt-2"
               >
-                <input
-                  :value="
+                <Input
+                  :model-value="
                     resourcePermissions.location?.[location.id]?.error || ''
                   "
-                  @input="
+                  @update:model-value="
                     setResourcePermissionMode(
                       'location',
                       location.id,
                       'restricted',
-                      ($event.target as HTMLInputElement).value
+                      String($event ?? '')
                     )
                   "
-                  type="text"
                   placeholder="Default error message"
-                  class="w-full text-xs px-2 py-1 border rounded bg-background"
+                  class="w-full text-xs"
                   @click.stop
                 />
               </div>
@@ -622,7 +630,7 @@ onMounted(async () => {
         </Card>
 
         <!-- Allowed Nodes -->
-        <Card class="p-6">
+        <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
           <div class="mb-4">
             <div class="flex items-center justify-between mb-2">
               <div class="flex items-center gap-2">
@@ -700,7 +708,7 @@ onMounted(async () => {
                           | 'restricted'
                       )
                     "
-                    class="text-xs px-2 py-1 border rounded"
+                    class="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     @click.stop
                   >
                     <option value="open">Open</option>
@@ -714,19 +722,18 @@ onMounted(async () => {
                 "
                 class="mt-2"
               >
-                <input
-                  :value="resourcePermissions.node?.[node.id]?.error || ''"
-                  @input="
+                <Input
+                  :model-value="resourcePermissions.node?.[node.id]?.error || ''"
+                  @update:model-value="
                     setResourcePermissionMode(
                       'node',
                       node.id,
                       'restricted',
-                      ($event.target as HTMLInputElement).value
+                      String($event ?? '')
                     )
                   "
-                  type="text"
                   placeholder="Default error message"
-                  class="w-full text-xs px-2 py-1 border rounded"
+                  class="w-full text-xs"
                   @click.stop
                 />
               </div>
@@ -735,7 +742,7 @@ onMounted(async () => {
         </Card>
 
         <!-- Allowed Realms -->
-        <Card class="p-6">
+        <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
           <div class="mb-4">
             <div class="flex items-center justify-between mb-2">
               <div class="flex items-center gap-2">
@@ -814,7 +821,7 @@ onMounted(async () => {
                           | 'restricted'
                       )
                     "
-                    class="text-xs px-2 py-1 border rounded"
+                    class="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     @click.stop
                   >
                     <option value="open">Open</option>
@@ -828,19 +835,18 @@ onMounted(async () => {
                 "
                 class="mt-2"
               >
-                <input
-                  :value="resourcePermissions.realm?.[realm.id]?.error || ''"
-                  @input="
+                <Input
+                  :model-value="resourcePermissions.realm?.[realm.id]?.error || ''"
+                  @update:model-value="
                     setResourcePermissionMode(
                       'realm',
                       realm.id,
                       'restricted',
-                      ($event.target as HTMLInputElement).value
+                      String($event ?? '')
                     )
                   "
-                  type="text"
                   placeholder="Default error message"
-                  class="w-full text-xs px-2 py-1 border rounded"
+                  class="w-full text-xs"
                   @click.stop
                 />
               </div>
@@ -849,7 +855,7 @@ onMounted(async () => {
         </Card>
 
         <!-- Allowed Spells -->
-        <Card class="p-6">
+        <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
           <div class="mb-4">
             <div class="flex items-center justify-between mb-2">
               <div class="flex items-center gap-2">
@@ -887,9 +893,9 @@ onMounted(async () => {
               <select
                 id="realm-filter"
                 v-model="selectedRealmFilter"
-                class="w-full md:w-64 px-3 py-2 border rounded-lg bg-background text-foreground"
+                class="flex h-9 w-full md:w-64 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option :value="null">All Realms</option>
+                <option value="">All Realms</option>
                 <option
                   v-for="realm in allRealms"
                   :key="realm.id"
@@ -963,7 +969,7 @@ onMounted(async () => {
                           | 'restricted'
                       )
                     "
-                    class="text-xs px-2 py-1 border rounded"
+                    class="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     @click.stop
                   >
                     <option value="open">Open</option>
@@ -977,19 +983,18 @@ onMounted(async () => {
                 "
                 class="mt-2"
               >
-                <input
-                  :value="resourcePermissions.spell?.[spell.id]?.error || ''"
-                  @input="
+                <Input
+                  :model-value="resourcePermissions.spell?.[spell.id]?.error || ''"
+                  @update:model-value="
                     setResourcePermissionMode(
                       'spell',
                       spell.id,
                       'restricted',
-                      ($event.target as HTMLInputElement).value
+                      String($event ?? '')
                     )
                   "
-                  type="text"
                   placeholder="Default error message"
-                  class="w-full text-xs px-2 py-1 border rounded"
+                  class="w-full text-xs"
                   @click.stop
                 />
               </div>
@@ -998,7 +1003,7 @@ onMounted(async () => {
         </Card>
 
         <!-- Permission Controls -->
-        <Card class="p-6">
+        <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
           <div class="mb-4">
             <Label class="text-base font-semibold">Permission Controls</Label>
             <p class="text-sm text-muted-foreground mt-1">
@@ -1042,12 +1047,11 @@ onMounted(async () => {
                 <Label for="default_error_location"
                   >Default Error Message for Locations</Label
                 >
-                <input
+                <Input
                   id="default_error_location"
                   v-model="formSettings.default_error_location"
-                  type="text"
                   placeholder="You do not have permission to use this location"
-                  class="mt-2 w-full px-3 py-2 border rounded-md"
+                  class="mt-2"
                 />
               </div>
             </div>
@@ -1087,12 +1091,11 @@ onMounted(async () => {
                 <Label for="default_error_node"
                   >Default Error Message for Nodes</Label
                 >
-                <input
+                <Input
                   id="default_error_node"
                   v-model="formSettings.default_error_node"
-                  type="text"
                   placeholder="You do not have permission to use this node"
-                  class="mt-2 w-full px-3 py-2 border rounded-md"
+                  class="mt-2"
                 />
               </div>
             </div>
@@ -1132,12 +1135,11 @@ onMounted(async () => {
                 <Label for="default_error_realm"
                   >Default Error Message for Realms</Label
                 >
-                <input
+                <Input
                   id="default_error_realm"
                   v-model="formSettings.default_error_realm"
-                  type="text"
                   placeholder="You do not have permission to use this realm"
-                  class="mt-2 w-full px-3 py-2 border rounded-md"
+                  class="mt-2"
                 />
               </div>
             </div>
@@ -1177,12 +1179,11 @@ onMounted(async () => {
                 <Label for="default_error_spell"
                   >Default Error Message for Spells</Label
                 >
-                <input
+                <Input
                   id="default_error_spell"
                   v-model="formSettings.default_error_spell"
-                  type="text"
                   placeholder="You do not have permission to use this spell"
-                  class="mt-2 w-full px-3 py-2 border rounded-md"
+                  class="mt-2"
                 />
               </div>
             </div>

@@ -340,6 +340,23 @@ return function (RouteCollection $routes): void {
         ['DELETE']
     );
 
+    // Get user groups
+    App::getInstance(true)->registerAdminRoute(
+        $routes,
+        'billingresourcesnewservers-admin-users-groups-get',
+        '/api/admin/billingresourcesnewservers/users/{userId}/groups',
+        function (Request $request, array $args) {
+            $userId = $args['userId'] ?? null;
+            if (!$userId || !is_numeric($userId)) {
+                return ApiResponse::error('Missing or invalid User ID', 'INVALID_USER_ID', 400);
+            }
+
+            return (new GroupsController())->getUserGroups($request, (int) $userId);
+        },
+        Permissions::ADMIN_USERS_VIEW,
+        ['GET']
+    );
+
     // Set groups for user
     App::getInstance(true)->registerAdminRoute(
         $routes,
