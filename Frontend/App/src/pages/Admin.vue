@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from "vue";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Loader2,
@@ -344,16 +345,20 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="w-full h-full overflow-auto p-4">
+  <div class="w-full h-full overflow-auto p-4 md:p-8 min-h-screen">
     <div class="container mx-auto max-w-7xl">
-      <div class="mb-6">
-        <h1 class="text-2xl font-semibold">New Server Settings</h1>
-        <p class="text-sm text-muted-foreground">
+      <div class="mb-6 text-center md:text-left">
+        <h1
+          class="text-3xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent"
+        >
+          New Server Settings
+        </h1>
+        <p class="text-muted-foreground mt-2">
           Configure user server creation options and restrictions
         </p>
       </div>
 
-      <Card v-if="loading && !settings" class="p-6">
+      <Card v-if="loading && !settings" class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
         <div class="flex items-center justify-center py-12">
           <Loader2 class="h-8 w-8 animate-spin" />
         </div>

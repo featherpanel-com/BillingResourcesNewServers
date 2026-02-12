@@ -3,6 +3,7 @@
     "/server/create": {
       "name": "Create Server",
       "icon": "➕",
+      "lucideIcon": "hard-drive",
       "showBadge": false,
       "redirect": "/server/create",
       "component": "/billingresourcesnewservers/dist/client.html",
@@ -15,6 +16,7 @@
     "/billingresourcesnewservers": {
       "name": "New Server Settings",
       "icon": "⚙️",
+      "lucideIcon": "settings-2",
       "showBadge": false,
       "redirect": "/billingresourcesnewservers",
       "component": "/billingresourcesnewservers/dist/admin.html",
@@ -25,6 +27,7 @@
     "/billingresourcesnewservers/permissions": {
       "name": "New Server Permissions",
       "icon": "👤",
+      "lucideIcon": "contact",
       "showBadge": false,
       "redirect": "/billingresourcesnewservers/permissions",
       "component": "/billingresourcesnewservers/dist/user-permissions.html",
