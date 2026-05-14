@@ -46,6 +46,84 @@ const { loading, error, getOptions, getSpellDetails, createServer } =
 
 const options = ref<ServerCreationOptions | null>(null);
 
+const RF_KEYS = [
+  "memory",
+  "cpu",
+  "disk",
+  "swap",
+  "io",
+  "database_limit",
+  "allocation_limit",
+  "backup_limit",
+] as const;
+
+const RF_SET = new Set<string>(RF_KEYS);
+
+function policyForKey(key: string) {
+  const p = options.value?.resource_field_policies?.[key];
+  if (p && (p.mode === "user" || p.mode === "fixed" || p.mode === "hidden")) {
+    return p;
+  }
+  return { mode: "user" as const };
+}
+
+function rfShow(key: string) {
+  if (!RF_SET.has(key)) return true;
+  return policyForKey(key).mode !== "hidden";
+}
+
+function rfEditable(key: string) {
+  if (!RF_SET.has(key)) return true;
+  return policyForKey(key).mode === "user";
+}
+
+function applyResourcePoliciesToForm() {
+  const o = options.value;
+  if (!o) return;
+  const pol = o.resource_field_policies;
+  if (pol) {
+    for (const key of RF_KEYS) {
+      const p = pol[key];
+      if (!p) continue;
+      if (p.mode === "fixed" || p.mode === "hidden") {
+        const v = p.value != null ? Number(p.value) : 0;
+        (form.value as unknown as Record<(typeof RF_KEYS)[number], number>)[key] =
+          v;
+      } else if (
+        p.mode === "user" &&
+        p.default != null &&
+        !Number.isNaN(Number(p.default))
+      ) {
+        (form.value as unknown as Record<(typeof RF_KEYS)[number], number>)[key] =
+          Number(p.default);
+      }
+    }
+  }
+  if (o.minimum_resources) {
+    form.value.memory = Math.max(
+      form.value.memory,
+      o.minimum_resources.memory
+    );
+    form.value.cpu = Math.max(form.value.cpu, o.minimum_resources.cpu);
+    form.value.disk = Math.max(form.value.disk, o.minimum_resources.disk);
+  }
+  if (o.available_resources) {
+    form.value.memory = Math.min(
+      form.value.memory,
+      o.available_resources.memory_limit
+    );
+    form.value.cpu = Math.min(form.value.cpu, o.available_resources.cpu_limit);
+    form.value.disk = Math.min(form.value.disk, o.available_resources.disk_limit);
+  }
+}
+
+const showFeatureLimitsSection = computed(
+  () =>
+    rfShow("database_limit") ||
+    rfShow("allocation_limit") ||
+    rfShow("backup_limit")
+);
+
 // Docker image selection
 const dockerImagePopoverOpen = ref(false);
 const availableDockerImages = ref<string[]>([]);
@@ -133,15 +211,7 @@ const loadOptions = async () => {
   try {
     const data = await getOptions();
     options.value = data;
-    // Set default values based on minimum resources
-    if (data.minimum_resources) {
-      form.value.memory = Math.max(
-        form.value.memory,
-        data.minimum_resources.memory
-      );
-      form.value.cpu = Math.max(form.value.cpu, data.minimum_resources.cpu);
-      form.value.disk = Math.max(form.value.disk, data.minimum_resources.disk);
-    }
+    applyResourcePoliciesToForm();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : "Failed to load options");
   }
@@ -380,32 +450,30 @@ const handleCreate = async () => {
     return;
   }
 
-  creating.value = true;
-  try {
-    await createServer(form.value);
-    toast.success("Server created successfully!");
-    // Reset form
-    form.value = {
-      name: "",
-      node_id: 0,
-      realms_id: 0,
-      spell_id: 0,
-      allocation_id: 0, // Will be auto-selected on backend
-      memory: 1024,
-      cpu: Math.min(100, options.value?.available_resources.cpu_limit ?? 100),
-      disk: 2048,
-      swap: 0,
-      io: 500,
-      description: "",
-      startup: "",
-      image: "",
-      database_limit: 0,
-      allocation_limit: 0,
-      backup_limit: 0,
-      variables: {},
-    };
-    // Reload options to refresh available resources
-    await loadOptions();
+    creating.value = true;
+    try {
+      await createServer(form.value);
+      toast.success("Server created successfully!");
+      form.value = {
+        name: "",
+        node_id: 0,
+        realms_id: 0,
+        spell_id: 0,
+        allocation_id: 0,
+        memory: 1024,
+        cpu: 0,
+        disk: 2048,
+        swap: 0,
+        io: 500,
+        description: "",
+        startup: "",
+        image: "",
+        database_limit: 0,
+        allocation_limit: 0,
+        backup_limit: 0,
+        variables: {},
+      };
+      await loadOptions();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : "Failed to create server");
   } finally {
@@ -752,10 +820,14 @@ onMounted(() => {
               </div>
 
               <!-- Resources -->
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
+              <div
+                v-if="rfShow('memory') || rfShow('cpu') || rfShow('disk')"
+                class="grid grid-cols-1 md:grid-cols-3 gap-4"
+              >
+                <div v-if="rfShow('memory')">
                   <Label for="memory">Memory (MB) *</Label>
                   <Input
+                    v-if="rfEditable('memory')"
                     id="memory"
                     v-model.number="form.memory"
                     type="number"
@@ -763,14 +835,23 @@ onMounted(() => {
                     :max="options.available_resources.memory_limit"
                     class="mt-2"
                   />
+                  <div
+                    v-else
+                    class="mt-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm font-medium"
+                  >
+                    {{ form.memory }} MB
+                    <span class="text-muted-foreground font-normal">
+                      · Fixed by host</span>
+                  </div>
                   <p class="text-xs text-muted-foreground mt-1">
                     Max:
                     {{ formatBytes(options.available_resources.memory_limit) }}
                   </p>
                 </div>
-                <div>
+                <div v-if="rfShow('cpu')">
                   <Label for="cpu">CPU (%) *</Label>
                   <Input
+                    v-if="rfEditable('cpu')"
                     id="cpu"
                     v-model.number="form.cpu"
                     type="number"
@@ -778,6 +859,14 @@ onMounted(() => {
                     :max="options.available_resources.cpu_limit"
                     class="mt-2"
                   />
+                  <div
+                    v-else
+                    class="mt-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm font-medium"
+                  >
+                    {{ form.cpu }}%
+                    <span class="text-muted-foreground font-normal">
+                      · Fixed by host</span>
+                  </div>
                   <p class="text-xs text-muted-foreground mt-1">
                     Max:
                     {{
@@ -785,9 +874,10 @@ onMounted(() => {
                     }}
                   </p>
                 </div>
-                <div>
+                <div v-if="rfShow('disk')">
                   <Label for="disk">Disk (MB) *</Label>
                   <Input
+                    v-if="rfEditable('disk')"
                     id="disk"
                     v-model.number="form.disk"
                     type="number"
@@ -795,6 +885,14 @@ onMounted(() => {
                     :max="options.available_resources.disk_limit"
                     class="mt-2"
                   />
+                  <div
+                    v-else
+                    class="mt-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm font-medium"
+                  >
+                    {{ form.disk }} MB
+                    <span class="text-muted-foreground font-normal">
+                      · Fixed by host</span>
+                  </div>
                   <p class="text-xs text-muted-foreground mt-1">
                     Max:
                     {{ formatBytes(options.available_resources.disk_limit) }}
@@ -886,10 +984,14 @@ onMounted(() => {
               </div>
 
               <!-- Feature Limits -->
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
+              <div
+                v-if="showFeatureLimitsSection"
+                class="grid grid-cols-1 md:grid-cols-3 gap-4"
+              >
+                <div v-if="rfShow('database_limit')">
                   <Label for="database_limit">Database Limit</Label>
                   <Input
+                    v-if="rfEditable('database_limit')"
                     id="database_limit"
                     v-model.number="form.database_limit"
                     type="number"
@@ -902,6 +1004,14 @@ onMounted(() => {
                     placeholder="0"
                     class="mt-2"
                   />
+                  <div
+                    v-else
+                    class="mt-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm font-medium"
+                  >
+                    {{ form.database_limit }}
+                    <span class="text-muted-foreground font-normal">
+                      · Fixed by host</span>
+                  </div>
                   <p class="text-xs text-muted-foreground mt-1">
                     Maximum number of databases for this server
                     <span v-if="options.available_resources.database_limit > 0">
@@ -911,9 +1021,10 @@ onMounted(() => {
                     <span v-else> (Unlimited) </span>
                   </p>
                 </div>
-                <div>
+                <div v-if="rfShow('allocation_limit')">
                   <Label for="allocation_limit">Allocation Limit</Label>
                   <Input
+                    v-if="rfEditable('allocation_limit')"
                     id="allocation_limit"
                     v-model.number="form.allocation_limit"
                     type="number"
@@ -926,6 +1037,14 @@ onMounted(() => {
                     placeholder="0"
                     class="mt-2"
                   />
+                  <div
+                    v-else
+                    class="mt-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm font-medium"
+                  >
+                    {{ form.allocation_limit }}
+                    <span class="text-muted-foreground font-normal">
+                      · Fixed by host</span>
+                  </div>
                   <p class="text-xs text-muted-foreground mt-1">
                     Maximum number of allocations for this server
                     <span
@@ -937,9 +1056,10 @@ onMounted(() => {
                     <span v-else> (Unlimited) </span>
                   </p>
                 </div>
-                <div>
+                <div v-if="rfShow('backup_limit')">
                   <Label for="backup_limit">Backup Limit</Label>
                   <Input
+                    v-if="rfEditable('backup_limit')"
                     id="backup_limit"
                     v-model.number="form.backup_limit"
                     type="number"
@@ -952,6 +1072,14 @@ onMounted(() => {
                     placeholder="0"
                     class="mt-2"
                   />
+                  <div
+                    v-else
+                    class="mt-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm font-medium"
+                  >
+                    {{ form.backup_limit }}
+                    <span class="text-muted-foreground font-normal">
+                      · Fixed by host</span>
+                  </div>
                   <p class="text-xs text-muted-foreground mt-1">
                     Maximum number of backups for this server
                     <span v-if="options.available_resources.backup_limit > 0">

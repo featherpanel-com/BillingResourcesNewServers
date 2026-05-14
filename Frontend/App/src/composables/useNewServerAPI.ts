@@ -73,6 +73,16 @@ export interface MinimumResources {
   disk: number;
 }
 
+export type ResourceFieldMode = "user" | "fixed" | "hidden";
+
+export interface ResourceFieldPolicyRow {
+  mode: ResourceFieldMode;
+  value?: number;
+  default?: number;
+}
+
+export type ResourceFieldPolicies = Record<string, ResourceFieldPolicyRow>;
+
 export interface ServerCreationOptions {
   locations: Location[];
   nodes: Node[];
@@ -80,6 +90,7 @@ export interface ServerCreationOptions {
   spells: Spell[];
   available_resources: AvailableResources;
   minimum_resources: MinimumResources;
+  resource_field_policies?: ResourceFieldPolicies;
 }
 
 export interface CreateServerData {

@@ -111,6 +111,7 @@ class ServerCreationController
                 'spells' => array_values($spells),
                 'available_resources' => $availableResources,
                 'minimum_resources' => $minimumResources,
+                'resource_field_policies' => SettingsHelper::getResourceFieldPolicies(),
             ], 'Options retrieved successfully', 200);
         } catch (\Exception $e) {
             App::getInstance(true)->getLogger()->error('Failed to get server creation options: ' . $e->getMessage());
@@ -286,6 +287,8 @@ class ServerCreationController
         if ($data === null) {
             return ApiResponse::error('Invalid JSON', 'INVALID_JSON', 400);
         }
+
+        $data = SettingsHelper::applyResourceFieldPoliciesToPayload($data);
 
         // Validate server creation
         $validation = ServerCreationHelper::validateServerCreation($userId, $data);

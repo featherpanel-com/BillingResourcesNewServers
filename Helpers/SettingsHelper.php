@@ -24,6 +24,158 @@ use App\Plugins\PluginSettings;
  */
 class SettingsHelper
 {
+    /** @var list<string> */
+    public const RESOURCE_FIELD_KEYS = [
+        'memory',
+        'cpu',
+        'disk',
+        'swap',
+        'io',
+        'database_limit',
+        'allocation_limit',
+        'backup_limit',
+    ];
+
+    /**
+     * Default policies: users can edit all fields (panel chooses form defaults).
+     *
+     * @return array<string, array{mode: string, value?: int|null, default?: int|null}>
+     */
+    public static function getDefaultResourceFieldPolicies(): array
+    {
+        $out = [];
+        foreach (self::RESOURCE_FIELD_KEYS as $key) {
+            $out[$key] = ['mode' => 'user'];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Parsed resource field policies merged with defaults.
+     *
+     * @return array<string, array{mode: string, value?: int|null, default?: int|null}>
+     */
+    public static function getResourceFieldPolicies(): array
+    {
+        $raw = PluginSettings::getSetting('billingresourcesnewservers', 'resource_field_policies');
+        $defaults = self::getDefaultResourceFieldPolicies();
+        if ($raw === null || $raw === '') {
+            return $defaults;
+        }
+
+        $decoded = json_decode((string) $raw, true);
+        if (!is_array($decoded)) {
+            $decoded = json_decode(
+                html_entity_decode((string) $raw, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                true
+            );
+        }
+        if (!is_array($decoded)) {
+            return $defaults;
+        }
+
+        foreach (self::RESOURCE_FIELD_KEYS as $key) {
+            if (!isset($decoded[$key]) || !is_array($decoded[$key])) {
+                continue;
+            }
+            $entry = $decoded[$key];
+            $mode = $entry['mode'] ?? 'user';
+            if (!in_array($mode, ['user', 'fixed', 'hidden'], true)) {
+                $mode = 'user';
+            }
+            $row = ['mode' => $mode];
+            if (array_key_exists('value', $entry) && $entry['value'] !== null && $entry['value'] !== '') {
+                $row['value'] = (int) $entry['value'];
+            }
+            if (array_key_exists('default', $entry) && $entry['default'] !== null && $entry['default'] !== '') {
+                $row['default'] = (int) $entry['default'];
+            }
+            $defaults[$key] = $row;
+        }
+
+        return $defaults;
+    }
+
+    /**
+     * @param array<string, mixed> $policies
+     */
+    public static function setResourceFieldPolicies(array $policies): void
+    {
+        $merged = self::getDefaultResourceFieldPolicies();
+        foreach (self::RESOURCE_FIELD_KEYS as $key) {
+            if (!isset($policies[$key]) || !is_array($policies[$key])) {
+                continue;
+            }
+            $entry = $policies[$key];
+            $mode = isset($entry['mode']) ? (string) $entry['mode'] : 'user';
+            if (!in_array($mode, ['user', 'fixed', 'hidden'], true)) {
+                $mode = 'user';
+            }
+            $row = ['mode' => $mode];
+            if ($mode === 'fixed' || $mode === 'hidden') {
+                $val = isset($entry['value']) ? (int) $entry['value'] : 0;
+                if (in_array($key, ['memory', 'disk'], true)) {
+                    $val = max(128, $val);
+                }
+                if ($key === 'cpu') {
+                    $val = max(0, $val);
+                }
+                if (in_array($key, ['swap', 'io', 'database_limit', 'allocation_limit', 'backup_limit'], true)) {
+                    $val = max(0, $val);
+                }
+                $row['value'] = $val;
+            } elseif ($mode === 'user' && isset($entry['default']) && $entry['default'] !== '' && $entry['default'] !== null) {
+                $d = (int) $entry['default'];
+                if (in_array($key, ['memory', 'disk'], true)) {
+                    $d = max(128, $d);
+                }
+                if ($key === 'cpu') {
+                    $d = max(0, $d);
+                }
+                if (in_array($key, ['swap', 'io', 'database_limit', 'allocation_limit', 'backup_limit'], true)) {
+                    $d = max(0, $d);
+                }
+                $row['default'] = $d;
+            }
+            $merged[$key] = $row;
+        }
+
+        PluginSettings::setSetting('billingresourcesnewservers', 'resource_field_policies', json_encode($merged));
+    }
+
+    /**
+     * Force server creation payload to match fixed/hidden field policies (anti-tamper).
+     *
+     * @param array<string, mixed> $data
+     *
+     * @return array<string, mixed>
+     */
+    public static function applyResourceFieldPoliciesToPayload(array $data): array
+    {
+        $policies = self::getResourceFieldPolicies();
+        foreach (self::RESOURCE_FIELD_KEYS as $key) {
+            $p = $policies[$key] ?? ['mode' => 'user'];
+            $mode = $p['mode'] ?? 'user';
+            if ($mode !== 'fixed' && $mode !== 'hidden') {
+                continue;
+            }
+            $val = isset($p['value']) ? (int) $p['value'] : 0;
+            if (in_array($key, ['memory', 'disk'], true)) {
+                $val = max(128, $val);
+            }
+            if ($key === 'cpu') {
+                $val = max(0, $val);
+            }
+            if (in_array($key, ['swap', 'io', 'database_limit', 'allocation_limit', 'backup_limit'], true)) {
+                $val = max(0, $val);
+            }
+            $data[$key] = $val;
+        }
+
+        return $data;
+    }
+
     /**
      * Check if user server creation is enabled.
      *
@@ -503,6 +655,7 @@ class SettingsHelper
             'default_error_node' => self::getResourceDefaultErrorMessage('node'),
             'default_error_realm' => self::getResourceDefaultErrorMessage('realm'),
             'default_error_spell' => self::getResourceDefaultErrorMessage('spell'),
+            'resource_field_policies' => self::getResourceFieldPolicies(),
         ];
     }
 

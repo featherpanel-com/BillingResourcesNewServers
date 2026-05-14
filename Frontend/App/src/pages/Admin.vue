@@ -16,6 +16,7 @@ import {
 import {
   useSettingsAPI,
   type PluginSettings,
+  type ResourceFieldPolicies,
 } from "@/composables/useSettingsAPI";
 import { useToast } from "vue-toastification";
 import axios from "axios";
@@ -58,6 +59,69 @@ const resourcePermissions = ref<{
 // Realm filter for spells ('' = all, number = specific realm)
 const selectedRealmFilter = ref<number | string | null>(null);
 
+const RESOURCE_POLICY_KEYS = [
+  "memory",
+  "cpu",
+  "disk",
+  "swap",
+  "io",
+  "database_limit",
+  "allocation_limit",
+  "backup_limit",
+] as const;
+
+function emptyResourcePolicies(): ResourceFieldPolicies {
+  const o: ResourceFieldPolicies = {};
+  for (const k of RESOURCE_POLICY_KEYS) {
+    o[k] = { mode: "user" };
+  }
+  return o;
+}
+
+function mergeResourcePolicies(
+  incoming?: ResourceFieldPolicies | null
+): ResourceFieldPolicies {
+  const base = emptyResourcePolicies();
+  if (!incoming) return base;
+  for (const k of RESOURCE_POLICY_KEYS) {
+    const row = incoming[k];
+    if (!row) continue;
+    const mode =
+      row.mode === "fixed" || row.mode === "hidden" ? row.mode : "user";
+    if (mode === "user") {
+      base[k] = { mode: "user" };
+      if (row.default != null && !Number.isNaN(Number(row.default))) {
+        base[k].default = Number(row.default);
+      }
+    } else {
+      base[k] = {
+        mode,
+        value: row.value != null ? Number(row.value) : 0,
+      };
+    }
+  }
+  return base;
+}
+
+const resourceFieldRows = [
+  { key: "memory", label: "Memory (MB)", hint: "RAM for the new server" },
+  { key: "cpu", label: "CPU (%)", hint: "CPU percentage cap" },
+  { key: "disk", label: "Disk (MB)", hint: "Disk space" },
+  { key: "swap", label: "Swap (MB)", hint: "Also enforced server-side if hidden" },
+  { key: "io", label: "IO weight", hint: "Block IO weight (e.g. 500)" },
+  {
+    key: "database_limit",
+    label: "Database limit",
+    hint: "Max databases on this server",
+  },
+  {
+    key: "allocation_limit",
+    label: "Allocation limit",
+    hint: "Max extra allocations (ports)",
+  },
+  { key: "backup_limit", label: "Backup limit", hint: "Max backups" },
+];
+
 // Form state
 const formSettings = ref<PluginSettings>({
   user_creation_enabled: false,
@@ -78,6 +142,7 @@ const formSettings = ref<PluginSettings>({
   default_error_node: "You do not have permission to use this node",
   default_error_realm: "You do not have permission to use this realm",
   default_error_spell: "You do not have permission to use this spell",
+  resource_field_policies: emptyResourcePolicies(),
 });
 
 // Filtered spells based on selected realm
@@ -97,7 +162,12 @@ const loadSettings = async () => {
   try {
     settings.value = await getSettings();
     if (settings.value) {
-      formSettings.value = { ...settings.value };
+      formSettings.value = {
+        ...settings.value,
+        resource_field_policies: mergeResourcePolicies(
+          settings.value.resource_field_policies
+        ),
+      };
     }
   } catch (err) {
     toast.error(err instanceof Error ? err.message : "Failed to load settings");
@@ -332,7 +402,14 @@ const clearAllSpells = () => {
 const saveSettings = async () => {
   saving.value = true;
   try {
-    settings.value = await updateSettings(formSettings.value);
+    const updated = await updateSettings(formSettings.value);
+    settings.value = updated;
+    formSettings.value = {
+      ...updated,
+      resource_field_policies: mergeResourcePolicies(
+        updated.resource_field_policies
+      ),
+    };
     toast.success("Settings saved successfully!");
   } catch (err) {
     toast.error(err instanceof Error ? err.message : "Failed to save settings");
@@ -507,6 +584,71 @@ onMounted(async () => {
               <p class="text-xs text-muted-foreground mt-1">
                 Minimum disk required (default: 128 MB)
               </p>
+            </div>
+          </div>
+        </Card>
+
+        <!-- Per-field defaults / lock (create server form) -->
+        <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
+          <div class="mb-4">
+            <Label class="text-base font-semibold">
+              Create server form — defaults & locked resources
+            </Label>
+            <p class="text-sm text-muted-foreground mt-1">
+              <span class="font-medium">User choice</span>: players can edit
+              the value (optional default pre-fills the field).
+              <span class="font-medium">Fixed</span>: always use the value below;
+              shown read-only on the create page.
+              <span class="font-medium">Hidden</span>: not shown; the value is
+              always applied server-side (users cannot change it).
+            </p>
+          </div>
+          <div class="space-y-4">
+            <div
+              v-for="row in resourceFieldRows"
+              :key="row.key"
+              class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end border-b border-border/50 pb-4 last:border-0 last:pb-0"
+            >
+              <div class="md:col-span-3">
+                <p class="font-medium">{{ row.label }}</p>
+                <p class="text-xs text-muted-foreground">{{ row.hint }}</p>
+              </div>
+              <div class="md:col-span-3">
+                <Label class="text-xs">Mode</Label>
+                <select
+                  v-model="formSettings.resource_field_policies![row.key].mode"
+                  class="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="user">User choice</option>
+                  <option value="fixed">Fixed (visible)</option>
+                  <option value="hidden">Hidden (forced)</option>
+                </select>
+              </div>
+              <div
+                v-if="formSettings.resource_field_policies![row.key].mode !== 'user'"
+                class="md:col-span-3"
+              >
+                <Label class="text-xs">Forced value</Label>
+                <Input
+                  v-model.number="formSettings.resource_field_policies![row.key].value"
+                  type="number"
+                  min="0"
+                  class="mt-1"
+                />
+              </div>
+              <div
+                v-if="formSettings.resource_field_policies![row.key].mode === 'user'"
+                class="md:col-span-3"
+              >
+                <Label class="text-xs">Default (optional)</Label>
+                <Input
+                  v-model.number="formSettings.resource_field_policies![row.key].default"
+                  type="number"
+                  min="0"
+                  class="mt-1"
+                  placeholder="Panel default"
+                />
+              </div>
             </div>
           </div>
         </Card>

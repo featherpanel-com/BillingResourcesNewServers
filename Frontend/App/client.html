@@ -1,10 +1,32 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" data-standalone-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Create Server - BillingResourcesNewServers</title>
+    <script>
+      (function () {
+        try {
+          var embedded = window.parent !== window;
+          if (embedded) {
+            document.documentElement.setAttribute("data-fp-embedded", "");
+          }
+          var th = new URLSearchParams(window.location.search).get("__theme");
+          if (th === "light") {
+            document.documentElement.classList.remove("dark");
+          } else if (th === "dark") {
+            document.documentElement.classList.add("dark");
+          } else if (!embedded) {
+            var st = document.documentElement.getAttribute("data-standalone-theme");
+            if (st === "light") document.documentElement.classList.remove("dark");
+            else if (st === "dark") document.documentElement.classList.add("dark");
+          } else {
+            document.documentElement.classList.add("dark");
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

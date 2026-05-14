@@ -11,9 +11,21 @@ export interface ApiResponse<T> {
   error_code?: string;
 }
 
+export type ResourceFieldMode = "user" | "fixed" | "hidden";
+
+export interface ResourceFieldPolicyRow {
+  mode: ResourceFieldMode;
+  /** Used when mode is fixed or hidden */
+  value?: number;
+  /** Initial value when mode is user (optional) */
+  default?: number;
+}
+
+export type ResourceFieldPolicies = Record<string, ResourceFieldPolicyRow>;
+
 export interface PluginSettings {
   user_creation_enabled: boolean;
-  user_restriction_mode?: 'all' | 'specific';
+  user_restriction_mode?: "all" | "specific";
   allowed_users?: number[];
   allowed_locations: number[];
   allowed_nodes: number[];
@@ -22,19 +34,20 @@ export interface PluginSettings {
   minimum_memory?: number;
   minimum_cpu?: number;
   minimum_disk?: number;
-  permission_mode_location?: 'open' | 'restricted';
-  permission_mode_node?: 'open' | 'restricted';
-  permission_mode_realm?: 'open' | 'restricted';
-  permission_mode_spell?: 'open' | 'restricted';
+  permission_mode_location?: "open" | "restricted";
+  permission_mode_node?: "open" | "restricted";
+  permission_mode_realm?: "open" | "restricted";
+  permission_mode_spell?: "open" | "restricted";
   default_error_location?: string;
   default_error_node?: string;
   default_error_realm?: string;
   default_error_spell?: string;
+  resource_field_policies?: ResourceFieldPolicies;
 }
 
 export interface UpdateSettingsData {
   user_creation_enabled?: boolean;
-  user_restriction_mode?: 'all' | 'specific';
+  user_restriction_mode?: "all" | "specific";
   allowed_users?: number[];
   allowed_locations?: number[];
   allowed_nodes?: number[];
@@ -43,14 +56,15 @@ export interface UpdateSettingsData {
   minimum_memory?: number;
   minimum_cpu?: number;
   minimum_disk?: number;
-  permission_mode_location?: 'open' | 'restricted';
-  permission_mode_node?: 'open' | 'restricted';
-  permission_mode_realm?: 'open' | 'restricted';
-  permission_mode_spell?: 'open' | 'restricted';
+  permission_mode_location?: "open" | "restricted";
+  permission_mode_node?: "open" | "restricted";
+  permission_mode_realm?: "open" | "restricted";
+  permission_mode_spell?: "open" | "restricted";
   default_error_location?: string;
   default_error_node?: string;
   default_error_realm?: string;
   default_error_spell?: string;
+  resource_field_policies?: ResourceFieldPolicies;
 }
 
 export function useSettingsAPI() {

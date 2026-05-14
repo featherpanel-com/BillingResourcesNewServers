@@ -83,6 +83,11 @@ class SettingsController
                     new OA\Property(property: 'minimum_memory', type: 'integer', description: 'Minimum memory required (MB)', example: 128),
                     new OA\Property(property: 'minimum_cpu', type: 'integer', description: 'Minimum CPU required (%)', example: 0),
                     new OA\Property(property: 'minimum_disk', type: 'integer', description: 'Minimum disk required (MB)', example: 128),
+                    new OA\Property(
+                        property: 'resource_field_policies',
+                        type: 'object',
+                        description: 'Per-field mode: user (editable), fixed (forced value, shown read-only), hidden (forced value, not shown). Keys: memory, cpu, disk, swap, io, database_limit, allocation_limit, backup_limit'
+                    ),
                     new OA\Property(property: 'user_restriction_mode', type: 'string', enum: ['all', 'specific'], description: 'User restriction mode: "all" for all users, "specific" for specific users only', example: 'all'),
                     new OA\Property(
                         property: 'allowed_users',
@@ -107,6 +112,14 @@ class SettingsController
 
         if ($data === null) {
             return ApiResponse::error('Invalid JSON', 'INVALID_JSON', 400);
+        }
+
+        // Update resource field policies (defaults / fixed / hidden for create form)
+        if (array_key_exists('resource_field_policies', $data)) {
+            if (!is_array($data['resource_field_policies'])) {
+                return ApiResponse::error('resource_field_policies must be an object', 'INVALID_TYPE', 400);
+            }
+            SettingsHelper::setResourceFieldPolicies($data['resource_field_policies']);
         }
 
         // Update user creation enabled

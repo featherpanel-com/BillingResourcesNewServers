@@ -120,6 +120,15 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* FeatherPanel loads plugins in an iframe: let the host dashboard background show through */
+  html[data-fp-embedded],
+  html[data-fp-embedded] body {
+    background-color: transparent !important;
+    background-image: none !important;
+  }
+  html[data-fp-embedded] #app {
+    background-color: transparent;
+  }
 }
 
 /* Custom scrollbar styling */
