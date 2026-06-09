@@ -59,6 +59,82 @@ const RF_KEYS = [
 
 const RF_SET = new Set<string>(RF_KEYS);
 
+const PF_KEYS = ["location", "node", "realm", "spell"] as const;
+const PF_SET = new Set<string>(PF_KEYS);
+
+function placementPolicyForKey(key: string) {
+  const p = options.value?.placement_field_policies?.[key];
+  if (p && (p.mode === "user" || p.mode === "fixed" || p.mode === "hidden")) {
+    return p;
+  }
+  return { mode: "user" as const };
+}
+
+function pfShow(key: string) {
+  if (!PF_SET.has(key)) return true;
+  return placementPolicyForKey(key).mode !== "hidden";
+}
+
+function pfEditable(key: string) {
+  if (!PF_SET.has(key)) return true;
+  return placementPolicyForKey(key).mode === "user";
+}
+
+function placementDisplayName(key: (typeof PF_KEYS)[number]): string {
+  const o = options.value;
+  if (!o) return "";
+  if (key === "location") {
+    const id = form.value.location_id;
+    const loc = o.locations.find((l) => l.id === id);
+    return loc?.name ?? (id ? `#${id}` : "");
+  }
+  if (key === "node") {
+    const id = form.value.node_id;
+    const node = o.nodes.find((n) => n.id === id);
+    return node?.name ?? (id ? `#${id}` : "");
+  }
+  if (key === "realm") {
+    const id = form.value.realms_id;
+    const realm = o.realms.find((r) => r.id === id);
+    return realm?.name ?? (id ? `#${id}` : "");
+  }
+  if (key === "spell") {
+    const id = form.value.spell_id;
+    const spell = o.spells.find((s) => s.id === id);
+    return spell?.name ?? (id ? `#${id}` : "");
+  }
+  return "";
+}
+
+function applyPlacementId(key: (typeof PF_KEYS)[number], id: number) {
+  if (key === "location") {
+    form.value.location_id = id;
+    if (placementPolicyForKey("node").mode === "user") {
+      form.value.node_id = 0;
+    }
+  } else if (key === "node") {
+    form.value.node_id = id;
+  } else if (key === "realm") {
+    form.value.realms_id = id;
+    if (placementPolicyForKey("spell").mode === "user") {
+      form.value.spell_id = 0;
+    }
+  } else if (key === "spell") {
+    form.value.spell_id = id;
+  }
+}
+
+function applyPlacementPoliciesToForm() {
+  const resolved = options.value?.placement_resolved_defaults;
+  if (!resolved) return;
+  for (const key of PF_KEYS) {
+    const id = resolved[key];
+    if (id != null && id > 0) {
+      applyPlacementId(key, id);
+    }
+  }
+}
+
 function policyForKey(key: string) {
   const p = options.value?.resource_field_policies?.[key];
   if (p && (p.mode === "user" || p.mode === "fixed" || p.mode === "hidden")) {
@@ -212,6 +288,7 @@ const loadOptions = async () => {
     const data = await getOptions();
     options.value = data;
     applyResourcePoliciesToForm();
+    applyPlacementPoliciesToForm();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : "Failed to load options");
   }
@@ -673,9 +750,20 @@ onMounted(() => {
               </div>
 
               <!-- Location Selection -->
-              <div>
+              <div v-if="pfShow('location')">
                 <Label>Location *</Label>
-                <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div
+                  v-if="!pfEditable('location')"
+                  class="mt-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm font-medium"
+                >
+                  {{ placementDisplayName("location") }}
+                  <span class="text-muted-foreground font-normal">
+                    · Fixed by host</span>
+                </div>
+                <div
+                  v-else
+                  class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2"
+                >
                   <div
                     v-for="location in options.locations"
                     :key="location.id"
@@ -698,9 +786,26 @@ onMounted(() => {
               </div>
 
               <!-- Node Selection -->
-              <div v-if="form.location_id && form.location_id > 0">
+              <div
+                v-if="
+                  pfShow('node') &&
+                  (pfEditable('node') || form.node_id > 0) &&
+                  ((form.location_id ?? 0) > 0 || !pfEditable('location'))
+                "
+              >
                 <Label>Node *</Label>
-                <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div
+                  v-if="!pfEditable('node')"
+                  class="mt-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm font-medium"
+                >
+                  {{ placementDisplayName("node") }}
+                  <span class="text-muted-foreground font-normal">
+                    · {{ placementPolicyForKey('node').mode === 'hidden' ? 'Selected automatically' : 'Fixed by host' }}</span>
+                </div>
+                <div
+                  v-else-if="form.location_id && form.location_id > 0"
+                  class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2"
+                >
                   <div
                     v-for="node in filteredNodes"
                     :key="node.id"
@@ -724,6 +829,16 @@ onMounted(() => {
                       {{ node.fqdn }}
                     </div>
                     <div
+                      v-if="
+                        (node.max_servers_per_node ?? 0) > 0 &&
+                        node.server_count != null
+                      "
+                      class="text-xs text-muted-foreground mt-1"
+                    >
+                      {{ node.server_count }} /
+                      {{ node.max_servers_per_node }} servers on this node
+                    </div>
+                    <div
                       v-if="node.allowed === false && node.error_message"
                       class="text-xs text-destructive mt-1"
                     >
@@ -740,9 +855,20 @@ onMounted(() => {
               </div>
 
               <!-- Realm Selection -->
-              <div>
+              <div v-if="pfShow('realm')">
                 <Label>Realm *</Label>
-                <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div
+                  v-if="!pfEditable('realm')"
+                  class="mt-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm font-medium"
+                >
+                  {{ placementDisplayName("realm") }}
+                  <span class="text-muted-foreground font-normal">
+                    · Fixed by host</span>
+                </div>
+                <div
+                  v-else
+                  class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2"
+                >
                   <div
                     v-for="realm in options.realms"
                     :key="realm.id"
@@ -780,9 +906,26 @@ onMounted(() => {
               </div>
 
               <!-- Spell Selection -->
-              <div v-if="form.realms_id > 0">
+              <div
+                v-if="
+                  pfShow('spell') &&
+                  (pfEditable('spell') || form.spell_id > 0) &&
+                  (form.realms_id > 0 || !pfEditable('realm'))
+                "
+              >
                 <Label>Spell *</Label>
-                <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div
+                  v-if="!pfEditable('spell')"
+                  class="mt-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm font-medium"
+                >
+                  {{ placementDisplayName("spell") }}
+                  <span class="text-muted-foreground font-normal">
+                    · Fixed by host</span>
+                </div>
+                <div
+                  v-else-if="form.realms_id > 0"
+                  class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2"
+                >
                   <div
                     v-for="spell in filteredSpells"
                     :key="spell.id"

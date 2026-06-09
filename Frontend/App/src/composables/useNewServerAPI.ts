@@ -28,6 +28,9 @@ export interface Node {
   maintenance_mode: boolean;
   allowed?: boolean;
   error_message?: string | null;
+  server_count?: number;
+  max_servers_per_node?: number;
+  at_capacity?: boolean;
 }
 
 export interface Realm {
@@ -83,6 +86,18 @@ export interface ResourceFieldPolicyRow {
 
 export type ResourceFieldPolicies = Record<string, ResourceFieldPolicyRow>;
 
+export type PlacementAutoStrategy = "first" | "least_capacity";
+
+export type PlacementPolicyValue = number | PlacementAutoStrategy;
+
+export interface PlacementFieldPolicyRow {
+  mode: ResourceFieldMode;
+  value?: PlacementPolicyValue;
+  default?: PlacementPolicyValue;
+}
+
+export type PlacementFieldPolicies = Record<string, PlacementFieldPolicyRow>;
+
 export interface ServerCreationOptions {
   locations: Location[];
   nodes: Node[];
@@ -91,6 +106,12 @@ export interface ServerCreationOptions {
   available_resources: AvailableResources;
   minimum_resources: MinimumResources;
   resource_field_policies?: ResourceFieldPolicies;
+  placement_field_policies?: PlacementFieldPolicies;
+  placement_resolved_defaults?: Partial<
+    Record<"location" | "node" | "realm" | "spell", number>
+  >;
+  /** 0 = unlimited */
+  max_servers_per_node?: number;
 }
 
 export interface CreateServerData {

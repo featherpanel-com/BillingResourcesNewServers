@@ -122,6 +122,14 @@ class SettingsController
             SettingsHelper::setResourceFieldPolicies($data['resource_field_policies']);
         }
 
+        // Update placement field policies (location, node, realm, spell)
+        if (array_key_exists('placement_field_policies', $data)) {
+            if (!is_array($data['placement_field_policies'])) {
+                return ApiResponse::error('placement_field_policies must be an object', 'INVALID_TYPE', 400);
+            }
+            SettingsHelper::setPlacementFieldPolicies($data['placement_field_policies']);
+        }
+
         // Update user creation enabled
         if (isset($data['user_creation_enabled'])) {
             $enabled = filter_var($data['user_creation_enabled'], FILTER_VALIDATE_BOOLEAN);
@@ -182,6 +190,25 @@ class SettingsController
                 return ApiResponse::error('minimum_disk must be at least 128 MB', 'INVALID_MINIMUM_DISK', 400);
             }
             SettingsHelper::setMinimumDisk((int) $data['minimum_disk']);
+        }
+
+        // Max servers per node (0 = unlimited)
+        if (isset($data['max_servers_per_node'])) {
+            if (!is_numeric($data['max_servers_per_node']) || (int) $data['max_servers_per_node'] < 0) {
+                return ApiResponse::error('max_servers_per_node must be 0 or greater (0 = unlimited)', 'INVALID_MAX_SERVERS_PER_NODE', 400);
+            }
+            SettingsHelper::setMaxServersPerNode((int) $data['max_servers_per_node']);
+        }
+
+        if (isset($data['node_at_capacity_error'])) {
+            SettingsHelper::setNodeAtCapacityErrorMessage((string) $data['node_at_capacity_error']);
+        }
+
+        if (isset($data['node_server_caps'])) {
+            if (!is_array($data['node_server_caps'])) {
+                return ApiResponse::error('node_server_caps must be an object', 'INVALID_TYPE', 400);
+            }
+            SettingsHelper::setNodeServerCaps($data['node_server_caps']);
         }
 
         // Update user restriction mode

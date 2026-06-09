@@ -23,6 +23,20 @@ export interface ResourceFieldPolicyRow {
 
 export type ResourceFieldPolicies = Record<string, ResourceFieldPolicyRow>;
 
+export type PlacementAutoStrategy = "first" | "least_capacity";
+
+export type PlacementPolicyValue = number | PlacementAutoStrategy;
+
+export interface PlacementFieldPolicyRow {
+  mode: ResourceFieldMode;
+  /** Used when mode is fixed or hidden (resource ID or auto strategy) */
+  value?: PlacementPolicyValue;
+  /** Pre-select when mode is user (optional) */
+  default?: PlacementPolicyValue;
+}
+
+export type PlacementFieldPolicies = Record<string, PlacementFieldPolicyRow>;
+
 export interface PluginSettings {
   user_creation_enabled: boolean;
   user_restriction_mode?: "all" | "specific";
@@ -34,6 +48,11 @@ export interface PluginSettings {
   minimum_memory?: number;
   minimum_cpu?: number;
   minimum_disk?: number;
+  /** Default cap when a node has no individual limit (0 = unlimited) */
+  max_servers_per_node?: number;
+  /** Per-node overrides (node ID => max servers) */
+  node_server_caps?: Record<number, number>;
+  node_at_capacity_error?: string;
   permission_mode_location?: "open" | "restricted";
   permission_mode_node?: "open" | "restricted";
   permission_mode_realm?: "open" | "restricted";
@@ -43,6 +62,7 @@ export interface PluginSettings {
   default_error_realm?: string;
   default_error_spell?: string;
   resource_field_policies?: ResourceFieldPolicies;
+  placement_field_policies?: PlacementFieldPolicies;
 }
 
 export interface UpdateSettingsData {
@@ -56,6 +76,11 @@ export interface UpdateSettingsData {
   minimum_memory?: number;
   minimum_cpu?: number;
   minimum_disk?: number;
+  /** Default cap when a node has no individual limit (0 = unlimited) */
+  max_servers_per_node?: number;
+  /** Per-node overrides (node ID => max servers) */
+  node_server_caps?: Record<number, number>;
+  node_at_capacity_error?: string;
   permission_mode_location?: "open" | "restricted";
   permission_mode_node?: "open" | "restricted";
   permission_mode_realm?: "open" | "restricted";
@@ -65,6 +90,7 @@ export interface UpdateSettingsData {
   default_error_realm?: string;
   default_error_spell?: string;
   resource_field_policies?: ResourceFieldPolicies;
+  placement_field_policies?: PlacementFieldPolicies;
 }
 
 export function useSettingsAPI() {

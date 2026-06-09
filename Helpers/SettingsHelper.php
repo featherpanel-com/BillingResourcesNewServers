@@ -17,6 +17,7 @@
 
 namespace App\Addons\billingresourcesnewservers\Helpers;
 
+use App\Chat\Server;
 use App\Plugins\PluginSettings;
 
 /**
@@ -34,6 +35,20 @@ class SettingsHelper
         'database_limit',
         'allocation_limit',
         'backup_limit',
+    ];
+
+    /** @var list<string> */
+    public const PLACEMENT_FIELD_KEYS = [
+        'location',
+        'node',
+        'realm',
+        'spell',
+    ];
+
+    /** @var list<string> */
+    public const PLACEMENT_AUTO_STRATEGIES = [
+        'first',
+        'least_capacity',
     ];
 
     /**
@@ -174,6 +189,117 @@ class SettingsHelper
         }
 
         return $data;
+    }
+
+    /**
+     * Default placement policies: users choose location, node, realm, and spell.
+     *
+     * @return array<string, array{mode: string, value?: int|string|null, default?: int|string|null}>
+     */
+    public static function getDefaultPlacementFieldPolicies(): array
+    {
+        $out = [];
+        foreach (self::PLACEMENT_FIELD_KEYS as $key) {
+            $out[$key] = ['mode' => 'user'];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Parsed placement field policies merged with defaults.
+     *
+     * @return array<string, array{mode: string, value?: int|string|null, default?: int|string|null}>
+     */
+    public static function getPlacementFieldPolicies(): array
+    {
+        $raw = PluginSettings::getSetting('billingresourcesnewservers', 'placement_field_policies');
+        $defaults = self::getDefaultPlacementFieldPolicies();
+        if ($raw === null || $raw === '') {
+            return $defaults;
+        }
+
+        $decoded = json_decode((string) $raw, true);
+        if (!is_array($decoded)) {
+            $decoded = json_decode(
+                html_entity_decode((string) $raw, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                true
+            );
+        }
+        if (!is_array($decoded)) {
+            return $defaults;
+        }
+
+        foreach (self::PLACEMENT_FIELD_KEYS as $key) {
+            if (!isset($decoded[$key]) || !is_array($decoded[$key])) {
+                continue;
+            }
+            $entry = $decoded[$key];
+            $mode = $entry['mode'] ?? 'user';
+            if (!in_array($mode, ['user', 'fixed', 'hidden'], true)) {
+                $mode = 'user';
+            }
+            $row = ['mode' => $mode];
+            if ($mode === 'fixed' || $mode === 'hidden') {
+                $val = self::normalizePlacementPolicyValue($entry['value'] ?? null, $key);
+                if ($val !== null) {
+                    $row['value'] = $val;
+                }
+            } elseif ($mode === 'user' && array_key_exists('default', $entry)) {
+                $def = self::normalizePlacementPolicyValue($entry['default'], $key);
+                if ($def !== null) {
+                    $row['default'] = $def;
+                }
+            }
+            $defaults[$key] = $row;
+        }
+
+        return $defaults;
+    }
+
+    /**
+     * @param array<string, mixed> $policies
+     */
+    public static function setPlacementFieldPolicies(array $policies): void
+    {
+        $merged = self::getDefaultPlacementFieldPolicies();
+        foreach (self::PLACEMENT_FIELD_KEYS as $key) {
+            if (!isset($policies[$key]) || !is_array($policies[$key])) {
+                continue;
+            }
+            $entry = $policies[$key];
+            $mode = isset($entry['mode']) ? (string) $entry['mode'] : 'user';
+            if (!in_array($mode, ['user', 'fixed', 'hidden'], true)) {
+                $mode = 'user';
+            }
+            $row = ['mode' => $mode];
+            if ($mode === 'fixed' || $mode === 'hidden') {
+                $val = self::normalizePlacementPolicyValue($entry['value'] ?? null, $key);
+                if ($val !== null) {
+                    $row['value'] = $val;
+                }
+            } elseif ($mode === 'user' && array_key_exists('default', $entry)) {
+                $def = self::normalizePlacementPolicyValue($entry['default'], $key);
+                if ($def !== null) {
+                    $row['default'] = $def;
+                }
+            }
+            $merged[$key] = $row;
+        }
+
+        PluginSettings::setSetting('billingresourcesnewservers', 'placement_field_policies', json_encode($merged));
+    }
+
+    /**
+     * Force server creation payload to match fixed/hidden placement policies (anti-tamper).
+     *
+     * @param array<string, mixed> $data
+     *
+     * @return array<string, mixed>
+     */
+    public static function applyPlacementFieldPoliciesToPayload(int $userId, array $data): array
+    {
+        return ServerCreationHelper::applyPlacementFieldPoliciesToPayload($userId, $data);
     }
 
     /**
@@ -395,6 +521,147 @@ class SettingsHelper
     public static function setMinimumDisk(int $disk): void
     {
         PluginSettings::setSetting('billingresourcesnewservers', 'minimum_disk', (string) max(128, $disk));
+    }
+
+    /**
+     * Default max servers per node when a node has no individual cap (0 = unlimited).
+     */
+    public static function getMaxServersPerNode(): int
+    {
+        $max = PluginSettings::getSetting('billingresourcesnewservers', 'max_servers_per_node');
+        if ($max === null || $max === '') {
+            return 0;
+        }
+
+        return max(0, (int) $max);
+    }
+
+    /**
+     * @param int $max Default maximum servers per node (0 = unlimited)
+     */
+    public static function setMaxServersPerNode(int $max): void
+    {
+        PluginSettings::setSetting('billingresourcesnewservers', 'max_servers_per_node', (string) max(0, $max));
+    }
+
+    /**
+     * Per-node server caps (node ID => max). Empty entry = use default above.
+     *
+     * @return array<int, int>
+     */
+    public static function getNodeServerCaps(): array
+    {
+        $raw = PluginSettings::getSetting('billingresourcesnewservers', 'node_server_caps');
+        if ($raw === null || $raw === '') {
+            return [];
+        }
+
+        $decoded = json_decode((string) $raw, true);
+        if (!is_array($decoded)) {
+            $decoded = json_decode(
+                html_entity_decode((string) $raw, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                true
+            );
+        }
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($decoded as $nodeId => $max) {
+            $id = (int) $nodeId;
+            $m = max(0, (int) $max);
+            if ($id > 0 && $m > 0) {
+                $out[$id] = $m;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<int|string, mixed> $caps Node ID => max servers (> 0); omit or 0 to clear override
+     */
+    public static function setNodeServerCaps(array $caps): void
+    {
+        $normalized = [];
+        foreach ($caps as $nodeId => $max) {
+            $id = (int) $nodeId;
+            $m = max(0, (int) $max);
+            if ($id > 0 && $m > 0) {
+                $normalized[(string) $id] = $m;
+            }
+        }
+
+        PluginSettings::setSetting('billingresourcesnewservers', 'node_server_caps', json_encode($normalized));
+    }
+
+    /**
+     * Effective max servers for one node (individual cap, else default; 0 = unlimited).
+     */
+    public static function getMaxServersForNode(int $nodeId): int
+    {
+        if ($nodeId <= 0) {
+            return 0;
+        }
+
+        $caps = self::getNodeServerCaps();
+        if (isset($caps[$nodeId])) {
+            return $caps[$nodeId];
+        }
+
+        return self::getMaxServersPerNode();
+    }
+
+    /**
+     * Count servers currently on a node (panel-wide, all owners).
+     */
+    public static function getNodeServerCount(int $nodeId): int
+    {
+        if ($nodeId <= 0) {
+            return 0;
+        }
+
+        return Server::getCount(nodeId: $nodeId);
+    }
+
+    /**
+     * Whether the node has reached its configured server cap.
+     */
+    public static function isNodeAtServerCap(int $nodeId): bool
+    {
+        $max = self::getMaxServersForNode($nodeId);
+        if ($max <= 0) {
+            return false;
+        }
+
+        return self::getNodeServerCount($nodeId) >= $max;
+    }
+
+    /**
+     * Error shown when a node is at its server cap. Supports {max} placeholder.
+     */
+    public static function getNodeAtCapacityErrorMessage(int $nodeId): string
+    {
+        $max = self::getMaxServersForNode($nodeId);
+        $message = PluginSettings::getSetting('billingresourcesnewservers', 'node_at_capacity_error');
+        if ($message === null || $message === '') {
+            $message = 'This node has reached the maximum of {max} servers';
+        }
+
+        if (str_contains($message, '{max}')) {
+            return str_replace('{max}', (string) $max, $message);
+        }
+
+        return $message;
+    }
+
+    /**
+     * @param string $message Custom error message (may include {max} placeholder)
+     */
+    public static function setNodeAtCapacityErrorMessage(string $message): void
+    {
+        PluginSettings::setSetting('billingresourcesnewservers', 'node_at_capacity_error', $message);
     }
 
     /**
@@ -647,6 +914,9 @@ class SettingsHelper
             'minimum_memory' => self::getMinimumMemory(),
             'minimum_cpu' => self::getMinimumCpu(),
             'minimum_disk' => self::getMinimumDisk(),
+            'max_servers_per_node' => self::getMaxServersPerNode(),
+            'node_server_caps' => self::getNodeServerCaps(),
+            'node_at_capacity_error' => PluginSettings::getSetting('billingresourcesnewservers', 'node_at_capacity_error') ?? '',
             'permission_mode_location' => self::getResourcePermissionMode('location'),
             'permission_mode_node' => self::getResourcePermissionMode('node'),
             'permission_mode_realm' => self::getResourcePermissionMode('realm'),
@@ -656,6 +926,7 @@ class SettingsHelper
             'default_error_realm' => self::getResourceDefaultErrorMessage('realm'),
             'default_error_spell' => self::getResourceDefaultErrorMessage('spell'),
             'resource_field_policies' => self::getResourceFieldPolicies(),
+            'placement_field_policies' => self::getPlacementFieldPolicies(),
         ];
     }
 
@@ -717,5 +988,33 @@ class SettingsHelper
 
         // Empty array means all spells are allowed
         return empty($allowed) || in_array($spellId, $allowed, true);
+    }
+
+    private static function normalizePlacementPolicyValue(mixed $raw, string $key): int | string | null
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+
+        if (is_string($raw)) {
+            $s = trim($raw);
+            if ($s === 'first') {
+                return 'first';
+            }
+            if ($s === 'least_capacity' && $key === 'node') {
+                return 'least_capacity';
+            }
+            if (is_numeric($s)) {
+                return (int) $s;
+            }
+
+            return null;
+        }
+
+        if (is_numeric($raw)) {
+            return (int) $raw;
+        }
+
+        return null;
     }
 }

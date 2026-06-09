@@ -17,6 +17,8 @@ import {
   useSettingsAPI,
   type PluginSettings,
   type ResourceFieldPolicies,
+  type PlacementFieldPolicies,
+  type PlacementPolicyValue,
 } from "@/composables/useSettingsAPI";
 import { useToast } from "vue-toastification";
 import axios from "axios";
@@ -103,6 +105,109 @@ function mergeResourcePolicies(
   return base;
 }
 
+const PLACEMENT_POLICY_KEYS = [
+  "location",
+  "node",
+  "realm",
+  "spell",
+] as const;
+
+function emptyPlacementPolicies(): PlacementFieldPolicies {
+  const o: PlacementFieldPolicies = {};
+  for (const k of PLACEMENT_POLICY_KEYS) {
+    o[k] = { mode: "user" };
+  }
+  return o;
+}
+
+function mergePlacementPolicies(
+  incoming?: PlacementFieldPolicies | null
+): PlacementFieldPolicies {
+  const base = emptyPlacementPolicies();
+  if (!incoming) return base;
+  for (const k of PLACEMENT_POLICY_KEYS) {
+    const row = incoming[k];
+    if (!row) continue;
+    const mode =
+      row.mode === "fixed" || row.mode === "hidden" ? row.mode : "user";
+    const normalized = (v: unknown): PlacementPolicyValue | undefined => {
+      if (v === null || v === undefined || v === "") return undefined;
+      if (v === "first" || v === "least_capacity") return v;
+      const n = Number(v);
+      return Number.isNaN(n) ? undefined : n;
+    };
+    if (mode === "user") {
+      base[k] = { mode: "user" };
+      const d = normalized(row.default);
+      if (d !== undefined) base[k].default = d;
+    } else {
+      base[k] = { mode };
+      const val = normalized(row.value);
+      if (val !== undefined) base[k].value = val;
+    }
+  }
+  return base;
+}
+
+function placementSelectValue(
+  key: (typeof PLACEMENT_POLICY_KEYS)[number],
+  field: "value" | "default"
+): string {
+  const row = formSettings.value.placement_field_policies?.[key];
+  if (!row) return "";
+  const raw = field === "value" ? row.value : row.default;
+  if (raw === null || raw === undefined) return "";
+  return String(raw);
+}
+
+function setPlacementSelectValue(
+  key: (typeof PLACEMENT_POLICY_KEYS)[number],
+  field: "value" | "default",
+  raw: string
+) {
+  const pol = formSettings.value.placement_field_policies;
+  if (!pol?.[key]) return;
+  const row = pol[key];
+  if (raw === "") {
+    if (field === "value") delete row.value;
+    else delete row.default;
+    return;
+  }
+  if (raw === "first" || raw === "least_capacity") {
+    if (field === "value") row.value = raw;
+    else row.default = raw;
+    return;
+  }
+  const n = Number(raw);
+  if (!Number.isNaN(n)) {
+    if (field === "value") row.value = n;
+    else row.default = n;
+  }
+}
+
+const placementFieldRows = [
+  {
+    key: "location" as const,
+    label: "Location",
+    hint: "Datacenter / region for the server",
+  },
+  {
+    key: "node" as const,
+    label: "Node",
+    hint: "Host machine; use “Least loaded” to auto-pick by capacity",
+  },
+  {
+    key: "realm" as const,
+    label: "Realm",
+    hint: "Game / service category",
+  },
+  {
+    key: "spell" as const,
+    label: "Spell",
+    hint: "Server type (egg); filtered by realm when set",
+  },
+];
+
 const resourceFieldRows = [
   { key: "memory", label: "Memory (MB)", hint: "RAM for the new server" },
   { key: "cpu", label: "CPU (%)", hint: "CPU percentage cap" },
@@ -134,6 +239,10 @@ const formSettings = ref<PluginSettings>({
   minimum_memory: 128,
   minimum_cpu: 0,
   minimum_disk: 128,
+  max_servers_per_node: 0,
+  node_server_caps: {},
+  node_at_capacity_error:
+    "This node has reached the maximum of {max} servers",
   permission_mode_location: "open",
   permission_mode_node: "open",
   permission_mode_realm: "open",
@@ -143,7 +252,64 @@ const formSettings = ref<PluginSettings>({
   default_error_realm: "You do not have permission to use this realm",
   default_error_spell: "You do not have permission to use this spell",
   resource_field_policies: emptyResourcePolicies(),
+  placement_field_policies: emptyPlacementPolicies(),
 });
+
+const nodesByLocation = computed(() => {
+  const groups: Array<{
+    locationId: number;
+    locationName: string;
+    nodes: Array<{ id: number; name: string; location_id: number }>;
+  }> = [];
+  const byLoc = new Map<
+    number,
+    Array<{ id: number; name: string; location_id: number }>
+  >();
+  for (const node of allNodes.value) {
+    const lid = node.location_id ?? 0;
+    if (!byLoc.has(lid)) {
+      byLoc.set(lid, []);
+    }
+    byLoc.get(lid)!.push(node);
+  }
+  for (const [locationId, nodes] of byLoc) {
+    const loc = allLocations.value.find((l) => l.id === locationId);
+    groups.push({
+      locationId,
+      locationName: loc?.name ?? `Location #${locationId}`,
+      nodes: [...nodes].sort((a, b) => a.name.localeCompare(b.name)),
+    });
+  }
+  return groups.sort((a, b) => a.locationName.localeCompare(b.locationName));
+});
+
+function getNodeServerCapInput(nodeId: number): string {
+  const caps = formSettings.value.node_server_caps ?? {};
+  const v = caps[nodeId];
+  return v != null && v > 0 ? String(v) : "";
+}
+
+function setNodeServerCapInput(nodeId: number, raw: string) {
+  if (!formSettings.value.node_server_caps) {
+    formSettings.value.node_server_caps = {};
+  }
+  const caps = { ...formSettings.value.node_server_caps };
+  const n = Number(raw);
+  if (raw.trim() === "" || Number.isNaN(n) || n <= 0) {
+    delete caps[nodeId];
+  } else {
+    caps[nodeId] = Math.floor(n);
+  }
+  formSettings.value.node_server_caps = caps;
+}
+
+function effectiveNodeCap(nodeId: number): number {
+  const caps = formSettings.value.node_server_caps ?? {};
+  if (caps[nodeId] != null && caps[nodeId] > 0) {
+    return caps[nodeId];
+  }
+  return formSettings.value.max_servers_per_node ?? 0;
+}
 
 // Filtered spells based on selected realm
 const filteredSpells = computed(() => {
@@ -166,6 +332,9 @@ const loadSettings = async () => {
         ...settings.value,
         resource_field_policies: mergeResourcePolicies(
           settings.value.resource_field_policies
+        ),
+        placement_field_policies: mergePlacementPolicies(
+          settings.value.placement_field_policies
         ),
       };
     }
@@ -653,6 +822,176 @@ onMounted(async () => {
           </div>
         </Card>
 
+        <!-- Placement defaults / lock (location, node, realm, spell) -->
+        <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
+          <div class="mb-4">
+            <Label class="text-base font-semibold">
+              Create server form — location, node, realm & spell
+            </Label>
+            <p class="text-sm text-muted-foreground mt-1">
+              Same modes as resource fields. Use
+              <span class="font-medium">First available</span> to pre-select or
+              force the first allowed option.
+              <span class="font-medium">Least loaded node</span> spreads new
+              servers across nodes (respects max servers per node, memory/disk,
+              and free allocations).
+            </p>
+          </div>
+          <div class="space-y-4">
+            <div
+              v-for="row in placementFieldRows"
+              :key="row.key"
+              class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end border-b border-border/50 pb-4 last:border-0 last:pb-0"
+            >
+              <div class="md:col-span-3">
+                <p class="font-medium">{{ row.label }}</p>
+                <p class="text-xs text-muted-foreground">{{ row.hint }}</p>
+              </div>
+              <div class="md:col-span-3">
+                <Label class="text-xs">Mode</Label>
+                <select
+                  v-model="formSettings.placement_field_policies![row.key].mode"
+                  class="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <option value="user">User choice</option>
+                  <option value="fixed">Fixed (visible)</option>
+                  <option value="hidden">Hidden (forced)</option>
+                </select>
+              </div>
+              <div
+                v-if="
+                  formSettings.placement_field_policies![row.key].mode !==
+                  'user'
+                "
+                class="md:col-span-3"
+              >
+                <Label class="text-xs">Forced selection</Label>
+                <select
+                  :value="placementSelectValue(row.key, 'value')"
+                  class="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  @change="
+                    setPlacementSelectValue(
+                      row.key,
+                      'value',
+                      ($event.target as HTMLSelectElement).value
+                    )
+                  "
+                >
+                  <option value="">— Select —</option>
+                  <option value="first">First available</option>
+                  <option
+                    v-if="row.key === 'node'"
+                    value="least_capacity"
+                  >
+                    Least loaded node
+                  </option>
+                  <template v-if="row.key === 'location'">
+                    <option
+                      v-for="loc in allLocations"
+                      :key="loc.id"
+                      :value="String(loc.id)"
+                    >
+                      {{ loc.name }} (#{{ loc.id }})
+                    </option>
+                  </template>
+                  <template v-else-if="row.key === 'node'">
+                    <option
+                      v-for="node in allNodes"
+                      :key="node.id"
+                      :value="String(node.id)"
+                    >
+                      {{ node.name }} (#{{ node.id }})
+                    </option>
+                  </template>
+                  <template v-else-if="row.key === 'realm'">
+                    <option
+                      v-for="realm in allRealms"
+                      :key="realm.id"
+                      :value="String(realm.id)"
+                    >
+                      {{ realm.name }} (#{{ realm.id }})
+                    </option>
+                  </template>
+                  <template v-else-if="row.key === 'spell'">
+                    <option
+                      v-for="spell in allSpells"
+                      :key="spell.id"
+                      :value="String(spell.id)"
+                    >
+                      {{ spell.name }} (#{{ spell.id }})
+                    </option>
+                  </template>
+                </select>
+              </div>
+              <div
+                v-if="
+                  formSettings.placement_field_policies![row.key].mode ===
+                  'user'
+                "
+                class="md:col-span-3"
+              >
+                <Label class="text-xs">Default (optional)</Label>
+                <select
+                  :value="placementSelectValue(row.key, 'default')"
+                  class="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  @change="
+                    setPlacementSelectValue(
+                      row.key,
+                      'default',
+                      ($event.target as HTMLSelectElement).value
+                    )
+                  "
+                >
+                  <option value="">None (user picks)</option>
+                  <option value="first">First available</option>
+                  <option
+                    v-if="row.key === 'node'"
+                    value="least_capacity"
+                  >
+                    Least loaded node
+                  </option>
+                  <template v-if="row.key === 'location'">
+                    <option
+                      v-for="loc in allLocations"
+                      :key="'d-loc-' + loc.id"
+                      :value="String(loc.id)"
+                    >
+                      {{ loc.name }} (#{{ loc.id }})
+                    </option>
+                  </template>
+                  <template v-else-if="row.key === 'node'">
+                    <option
+                      v-for="node in allNodes"
+                      :key="'d-node-' + node.id"
+                      :value="String(node.id)"
+                    >
+                      {{ node.name }} (#{{ node.id }})
+                    </option>
+                  </template>
+                  <template v-else-if="row.key === 'realm'">
+                    <option
+                      v-for="realm in allRealms"
+                      :key="'d-realm-' + realm.id"
+                      :value="String(realm.id)"
+                    >
+                      {{ realm.name }} (#{{ realm.id }})
+                    </option>
+                  </template>
+                  <template v-else-if="row.key === 'spell'">
+                    <option
+                      v-for="spell in allSpells"
+                      :key="'d-spell-' + spell.id"
+                      :value="String(spell.id)"
+                    >
+                      {{ spell.name }} (#{{ spell.id }})
+                    </option>
+                  </template>
+                </select>
+              </div>
+            </div>
+          </div>
+        </Card>
+
         <!-- Allowed Locations -->
         <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
           <div class="mb-4">
@@ -799,8 +1138,38 @@ onMounted(async () => {
               </div>
             </div>
             <p class="text-sm text-muted-foreground">
-              Select which nodes users can use. Leave empty to allow all nodes.
+              Nodes are grouped by location. Set a <strong>max servers</strong>
+              on each node (not on the location). Leave empty to allow all nodes.
             </p>
+          </div>
+          <div
+            class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 border rounded-lg bg-muted/20"
+          >
+            <div>
+              <Label for="max_servers_per_node">Default max servers (per node)</Label>
+              <Input
+                id="max_servers_per_node"
+                v-model.number="formSettings.max_servers_per_node"
+                type="number"
+                min="0"
+                class="mt-2"
+              />
+              <p class="text-xs text-muted-foreground mt-1">
+                Fallback when a node has no individual cap (0 = unlimited).
+              </p>
+            </div>
+            <div>
+              <Label for="node_at_capacity_error">Node full — error message</Label>
+              <Input
+                id="node_at_capacity_error"
+                v-model="formSettings.node_at_capacity_error"
+                placeholder="This node has reached the maximum of {max} servers"
+                class="mt-2"
+              />
+              <p class="text-xs text-muted-foreground mt-1">
+                Use <code class="text-xs">{max}</code> for that node’s limit.
+              </p>
+            </div>
           </div>
           <div
             v-if="loadingOptions"
@@ -808,76 +1177,110 @@ onMounted(async () => {
           >
             <Loader2 class="h-6 w-6 animate-spin" />
           </div>
-          <div
-            v-else
-            class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"
-          >
+          <div v-else class="space-y-6">
             <div
-              v-for="node in allNodes"
-              :key="node.id"
-              class="p-3 border rounded-lg"
-              :class="{
-                'border-primary bg-primary/10': isNodeSelected(node.id),
-              }"
+              v-for="group in nodesByLocation"
+              :key="group.locationId"
+              class="space-y-2"
             >
-              <div class="flex items-center justify-between mb-2">
+              <h3
+                class="text-sm font-semibold text-muted-foreground flex items-center gap-2"
+              >
+                <MapPin class="h-4 w-4" />
+                {{ group.locationName }}
+              </h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                 <div
-                  class="flex items-center gap-2 flex-1 cursor-pointer"
-                  @click="toggleNode(node.id)"
+                  v-for="node in group.nodes"
+                  :key="node.id"
+                  class="p-3 border rounded-lg"
+                  :class="{
+                    'border-primary bg-primary/10': isNodeSelected(node.id),
+                  }"
                 >
+                  <div class="flex items-center justify-between mb-2">
+                    <div
+                      class="flex items-center gap-2 flex-1 cursor-pointer"
+                      @click="toggleNode(node.id)"
+                    >
+                      <div
+                        class="flex h-5 w-5 items-center justify-center rounded border shrink-0"
+                        :class="{
+                          'bg-primary border-primary': isNodeSelected(node.id),
+                        }"
+                      >
+                        <Check
+                          v-if="isNodeSelected(node.id)"
+                          class="h-4 w-4 text-primary-foreground"
+                        />
+                      </div>
+                      <span class="font-medium">{{ node.name }}</span>
+                    </div>
+                    <select
+                      :value="getResourcePermissionMode('node', node.id)"
+                      @change="
+                        setResourcePermissionMode(
+                          'node',
+                          node.id,
+                          ($event.target as HTMLSelectElement).value as
+                            | 'open'
+                            | 'restricted'
+                        )
+                      "
+                      class="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring shrink-0"
+                      @click.stop
+                    >
+                      <option value="open">Open</option>
+                      <option value="restricted">Restricted</option>
+                    </select>
+                  </div>
+                  <div class="mt-2" @click.stop>
+                    <Label class="text-xs">Max servers on this node</Label>
+                    <Input
+                      :model-value="getNodeServerCapInput(node.id)"
+                      type="number"
+                      min="0"
+                      placeholder="Default"
+                      class="mt-1 h-8 text-sm"
+                      @update:model-value="
+                        setNodeServerCapInput(node.id, String($event ?? ''))
+                      "
+                    />
+                    <p class="text-xs text-muted-foreground mt-1">
+                      <template v-if="getNodeServerCapInput(node.id)">
+                        Cap: {{ getNodeServerCapInput(node.id) }} servers
+                      </template>
+                      <template v-else-if="effectiveNodeCap(node.id) > 0">
+                        Cap: {{ effectiveNodeCap(node.id) }} (default)
+                      </template>
+                      <template v-else>Unlimited</template>
+                    </p>
+                  </div>
                   <div
-                    class="flex h-5 w-5 items-center justify-center rounded border"
-                    :class="{
-                      'bg-primary border-primary': isNodeSelected(node.id),
-                    }"
+                    v-if="
+                      getResourcePermissionMode('node', node.id) ===
+                      'restricted'
+                    "
+                    class="mt-2"
                   >
-                    <Check
-                      v-if="isNodeSelected(node.id)"
-                      class="h-4 w-4 text-primary-foreground"
+                    <Input
+                      :model-value="
+                        resourcePermissions.node?.[node.id]?.error || ''
+                      "
+                      @update:model-value="
+                        setResourcePermissionMode(
+                          'node',
+                          node.id,
+                          'restricted',
+                          String($event ?? '')
+                        )
+                      "
+                      placeholder="Default error message"
+                      class="w-full text-xs"
+                      @click.stop
                     />
                   </div>
-                  <span class="font-medium">{{ node.name }}</span>
                 </div>
-                <div class="flex items-center gap-2">
-                  <select
-                    :value="getResourcePermissionMode('node', node.id)"
-                    @change="
-                      setResourcePermissionMode(
-                        'node',
-                        node.id,
-                        ($event.target as HTMLSelectElement).value as
-                          | 'open'
-                          | 'restricted'
-                      )
-                    "
-                    class="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    @click.stop
-                  >
-                    <option value="open">Open</option>
-                    <option value="restricted">Restricted</option>
-                  </select>
-                </div>
-              </div>
-              <div
-                v-if="
-                  getResourcePermissionMode('node', node.id) === 'restricted'
-                "
-                class="mt-2"
-              >
-                <Input
-                  :model-value="resourcePermissions.node?.[node.id]?.error || ''"
-                  @update:model-value="
-                    setResourcePermissionMode(
-                      'node',
-                      node.id,
-                      'restricted',
-                      String($event ?? '')
-                    )
-                  "
-                  placeholder="Default error message"
-                  class="w-full text-xs"
-                  @click.stop
-                />
               </div>
             </div>
           </div>

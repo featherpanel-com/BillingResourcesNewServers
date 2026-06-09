@@ -20,6 +20,7 @@ namespace App\Addons\billingresourcesnewservers\Helpers;
 use App\Chat\Node;
 use App\Chat\Realm;
 use App\Chat\Spell;
+use App\Chat\Server;
 use App\Chat\Location;
 use App\Chat\Allocation;
 use App\Addons\billingresources\Helpers\ResourcesHelper;
@@ -87,6 +88,26 @@ class ServerCreationHelper
                 'valid' => false,
                 'error' => $nodePermission['custom_error'] ?? 'This node is not available for you',
                 'error_code' => 'NODE_NOT_ALLOWED',
+            ];
+        }
+
+        $memory = (int) $serverData['memory'];
+        $disk = (int) $serverData['disk'];
+
+        if (SettingsHelper::isNodeAtServerCap($nodeId)) {
+            return [
+                'valid' => false,
+                'error' => SettingsHelper::getNodeAtCapacityErrorMessage($nodeId),
+                'error_code' => 'NODE_SERVER_CAP_REACHED',
+            ];
+        }
+
+        $nodeCapacity = self::evaluateNodeResourceCapacity($nodeId, $memory, $disk);
+        if (!$nodeCapacity['eligible']) {
+            return [
+                'valid' => false,
+                'error' => $nodeCapacity['error'] ?? 'This node does not have enough capacity for this server',
+                'error_code' => $nodeCapacity['error_code'] ?? 'NODE_INSUFFICIENT_CAPACITY',
             ];
         }
 
@@ -174,9 +195,7 @@ class ServerCreationHelper
         }
 
         // Validate resource values against minimum requirements
-        $memory = (int) $serverData['memory'];
         $cpu = (int) $serverData['cpu'];
-        $disk = (int) $serverData['disk'];
 
         $minMemory = SettingsHelper::getMinimumMemory();
         $minCpu = SettingsHelper::getMinimumCpu();
@@ -389,10 +408,148 @@ class ServerCreationHelper
                 }
             }
 
+            $nodeData = self::annotateNodeCapacity($nodeData);
+
             $result[] = $nodeData;
         }
 
         return $result;
+    }
+
+    /**
+     * Add server-count / cap metadata and mark full nodes as unavailable.
+     *
+     * @param array<string, mixed> $nodeData
+     *
+     * @return array<string, mixed>
+     */
+    public static function annotateNodeCapacity(array $nodeData): array
+    {
+        if (!isset($nodeData['id'])) {
+            return $nodeData;
+        }
+
+        $nodeId = (int) $nodeData['id'];
+        $serverCount = SettingsHelper::getNodeServerCount($nodeId);
+        $maxServers = SettingsHelper::getMaxServersForNode($nodeId);
+        $atCapacity = $maxServers > 0 && $serverCount >= $maxServers;
+
+        $nodeData['server_count'] = $serverCount;
+        $nodeData['max_servers_per_node'] = $maxServers;
+        $nodeData['at_capacity'] = $atCapacity;
+
+        if ($atCapacity && ($nodeData['allowed'] ?? true) !== false) {
+            $nodeData['allowed'] = false;
+            $nodeData['error_message'] = SettingsHelper::getNodeAtCapacityErrorMessage($nodeId);
+        }
+
+        return $nodeData;
+    }
+
+    /**
+     * @return array{eligible: bool, error?: string, error_code?: string}
+     */
+    public static function evaluateNodeResourceCapacity(int $nodeId, int $requiredMemory, int $requiredDisk): array
+    {
+        if (Allocation::getFreeCountByNodeId($nodeId) < 1) {
+            return [
+                'eligible' => false,
+                'error' => 'No free allocations available on this node',
+                'error_code' => 'NO_FREE_ALLOCATIONS',
+            ];
+        }
+
+        $fullNode = Node::getNodeById($nodeId);
+        if (!$fullNode) {
+            return [
+                'eligible' => false,
+                'error' => 'Node not found',
+                'error_code' => 'NODE_NOT_FOUND',
+            ];
+        }
+
+        $nodeMemory = (int) ($fullNode['memory'] ?? 0);
+        $nodeDisk = (int) ($fullNode['disk'] ?? 0);
+        $memOverallocation = (int) ($fullNode['memory_overallocate'] ?? 0);
+        $diskOverallocation = (int) ($fullNode['disk_overallocate'] ?? 0);
+
+        $memoryCap = $nodeMemory > 0
+            ? (int) floor($nodeMemory * (1 + ($memOverallocation / 100)))
+            : 0;
+        $diskCap = $nodeDisk > 0
+            ? (int) floor($nodeDisk * (1 + ($diskOverallocation / 100)))
+            : 0;
+
+        $allocated = self::getNodeAllocatedResources($nodeId);
+
+        if ($requiredMemory > 0 && $memoryCap > 0 && ($allocated['memory'] + $requiredMemory) > $memoryCap) {
+            return [
+                'eligible' => false,
+                'error' => 'This node does not have enough memory capacity for this server',
+                'error_code' => 'NODE_INSUFFICIENT_MEMORY',
+            ];
+        }
+
+        if ($requiredDisk > 0 && $diskCap > 0 && ($allocated['disk'] + $requiredDisk) > $diskCap) {
+            return [
+                'eligible' => false,
+                'error' => 'This node does not have enough disk capacity for this server',
+                'error_code' => 'NODE_INSUFFICIENT_DISK',
+            ];
+        }
+
+        return ['eligible' => true];
+    }
+
+    /**
+     * Lower score = better placement candidate (spread servers + balance resources).
+     */
+    public static function scoreNodeForPlacement(int $nodeId, int $requiredMemory, int $requiredDisk): ?float
+    {
+        if (SettingsHelper::isNodeAtServerCap($nodeId)) {
+            return null;
+        }
+
+        $capacity = self::evaluateNodeResourceCapacity($nodeId, $requiredMemory, $requiredDisk);
+        if (!$capacity['eligible']) {
+            return null;
+        }
+
+        $fullNode = Node::getNodeById($nodeId);
+        if (!$fullNode) {
+            return null;
+        }
+
+        $serverCount = SettingsHelper::getNodeServerCount($nodeId);
+        $maxServers = SettingsHelper::getMaxServersForNode($nodeId);
+
+        if ($maxServers > 0) {
+            $serverPressure = $serverCount / $maxServers;
+        } else {
+            $serverPressure = $serverCount / 100.0;
+        }
+
+        $nodeMemory = (int) ($fullNode['memory'] ?? 0);
+        $nodeDisk = (int) ($fullNode['disk'] ?? 0);
+        $memOverallocation = (int) ($fullNode['memory_overallocate'] ?? 0);
+        $diskOverallocation = (int) ($fullNode['disk_overallocate'] ?? 0);
+
+        $memoryCap = $nodeMemory > 0
+            ? (int) floor($nodeMemory * (1 + ($memOverallocation / 100)))
+            : 0;
+        $diskCap = $nodeDisk > 0
+            ? (int) floor($nodeDisk * (1 + ($diskOverallocation / 100)))
+            : 0;
+
+        $allocated = self::getNodeAllocatedResources($nodeId);
+        $memoryUsage = $memoryCap > 0 ? $allocated['memory'] / $memoryCap : 0.0;
+        $diskUsage = $diskCap > 0 ? $allocated['disk'] / $diskCap : 0.0;
+        $freeAllocations = Allocation::getFreeCountByNodeId($nodeId);
+
+        return ($serverPressure * 10000)
+            + ($memoryUsage * 1000)
+            + ($diskUsage * 100)
+            - min($freeAllocations, 100) * 0.1;
     }
 
     /**
@@ -500,5 +657,254 @@ class ServerCreationHelper
         }
 
         return $result;
+    }
+
+    /**
+     * Resolve user-mode placement defaults (including auto strategies) for the create form.
+     *
+     * @param array<string, array{mode: string, value?: int|string|null, default?: int|string|null}> $policies
+     *
+     * @return array<string, int>
+     */
+    public static function resolvePlacementDefaultsForForm(
+        int $userId,
+        array $policies,
+        int $requiredMemory = 0,
+        int $requiredDisk = 0,
+    ): array {
+        $out = [];
+        $context = [];
+
+        foreach (SettingsHelper::PLACEMENT_FIELD_KEYS as $key) {
+            $p = $policies[$key] ?? ['mode' => 'user'];
+            $mode = $p['mode'] ?? 'user';
+            $def = null;
+            if ($mode === 'user' && isset($p['default'])) {
+                $def = $p['default'];
+            } elseif (($mode === 'fixed' || $mode === 'hidden') && isset($p['value'])) {
+                $def = $p['value'];
+            }
+            if ($def === null || $def === '') {
+                continue;
+            }
+
+            $resolved = self::resolvePlacementSelection(
+                $userId,
+                $key,
+                $def,
+                $context,
+                $requiredMemory,
+                $requiredDisk
+            );
+            if ($resolved === null) {
+                continue;
+            }
+
+            $out[$key] = $resolved;
+            if ($key === 'location') {
+                $context['location_id'] = $resolved;
+            } elseif ($key === 'node') {
+                $context['node_id'] = $resolved;
+            } elseif ($key === 'realm') {
+                $context['realms_id'] = $resolved;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Apply fixed/hidden placement policies to the create-server payload.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @return array<string, mixed>
+     */
+    public static function applyPlacementFieldPoliciesToPayload(int $userId, array $data): array
+    {
+        $policies = SettingsHelper::getPlacementFieldPolicies();
+        $memory = isset($data['memory']) ? (int) $data['memory'] : 0;
+        $disk = isset($data['disk']) ? (int) $data['disk'] : 0;
+
+        foreach (SettingsHelper::PLACEMENT_FIELD_KEYS as $key) {
+            $p = $policies[$key] ?? ['mode' => 'user'];
+            $mode = $p['mode'] ?? 'user';
+            if ($mode !== 'fixed' && $mode !== 'hidden') {
+                continue;
+            }
+            if (!array_key_exists('value', $p) || $p['value'] === null || $p['value'] === '') {
+                continue;
+            }
+
+            $resolved = self::resolvePlacementSelection(
+                $userId,
+                $key,
+                $p['value'],
+                $data,
+                $memory,
+                $disk
+            );
+            if ($resolved === null) {
+                continue;
+            }
+
+            if ($key === 'location') {
+                $data['location_id'] = $resolved;
+            } elseif ($key === 'node') {
+                $data['node_id'] = $resolved;
+            } elseif ($key === 'realm') {
+                $data['realms_id'] = $resolved;
+            } elseif ($key === 'spell') {
+                $data['spell_id'] = $resolved;
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Resolve a placement policy value (numeric ID or auto strategy) for the current user.
+     *
+     * @param int|string $valueOrStrategy Resource ID or strategy (first, least_capacity)
+     * @param array<string, mixed> $context Current form payload (location_id, realms_id, etc.)
+     */
+    public static function resolvePlacementSelection(
+        int $userId,
+        string $field,
+        int | string $valueOrStrategy,
+        array $context = [],
+        int $requiredMemory = 0,
+        int $requiredDisk = 0,
+    ): ?int {
+        if (is_int($valueOrStrategy) || (is_string($valueOrStrategy) && is_numeric($valueOrStrategy))) {
+            return (int) $valueOrStrategy;
+        }
+
+        if ($valueOrStrategy === 'first') {
+            return self::resolveFirstPlacement($userId, $field, $context);
+        }
+
+        if ($valueOrStrategy === 'least_capacity' && $field === 'node') {
+            $locationId = isset($context['location_id']) ? (int) $context['location_id'] : null;
+            if ($locationId !== null && $locationId <= 0) {
+                $locationId = null;
+            }
+
+            return self::resolveLeastCapacityNode($userId, $locationId, $requiredMemory, $requiredDisk);
+        }
+
+        return null;
+    }
+
+    /**
+     * Pick the allowed node with the most remaining capacity (lowest memory utilization, then most free allocations).
+     */
+    public static function resolveLeastCapacityNode(
+        int $userId,
+        ?int $locationId = null,
+        int $requiredMemory = 0,
+        int $requiredDisk = 0,
+    ): ?int {
+        $all = Node::getAllNodes();
+        $candidates = self::filterNodes($all, $userId, $locationId);
+        if ($candidates === []) {
+            return null;
+        }
+
+        $bestNodeId = null;
+        $bestScore = null;
+
+        foreach ($candidates as $node) {
+            if (!isset($node['id'])) {
+                continue;
+            }
+            $nodeId = (int) $node['id'];
+            $score = self::scoreNodeForPlacement($nodeId, $requiredMemory, $requiredDisk);
+            if ($score === null) {
+                continue;
+            }
+
+            if ($bestScore === null || $score < $bestScore) {
+                $bestScore = $score;
+                $bestNodeId = $nodeId;
+            }
+        }
+
+        return $bestNodeId;
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private static function resolveFirstPlacement(int $userId, string $field, array $context): ?int
+    {
+        if ($field === 'location') {
+            $all = Location::getAll(null, 1000, 0);
+            $filtered = self::filterLocations($all, $userId);
+
+            return isset($filtered[0]['id']) ? (int) $filtered[0]['id'] : null;
+        }
+
+        if ($field === 'node') {
+            $locationId = isset($context['location_id']) ? (int) $context['location_id'] : null;
+            if ($locationId !== null && $locationId <= 0) {
+                $locationId = null;
+            }
+            $all = Node::getAllNodes();
+            $filtered = self::filterNodes($all, $userId, $locationId);
+
+            foreach ($filtered as $node) {
+                if (!isset($node['id'])) {
+                    continue;
+                }
+                $nodeId = (int) $node['id'];
+                if (SettingsHelper::isNodeAtServerCap($nodeId)) {
+                    continue;
+                }
+                if (Allocation::getFreeCountByNodeId($nodeId) < 1) {
+                    continue;
+                }
+
+                return $nodeId;
+            }
+
+            return null;
+        }
+
+        if ($field === 'realm') {
+            $all = Realm::getAll(null, 1000, 0);
+            $filtered = self::filterRealms($all, $userId);
+
+            return isset($filtered[0]['id']) ? (int) $filtered[0]['id'] : null;
+        }
+
+        if ($field === 'spell') {
+            $realmId = isset($context['realms_id']) ? (int) $context['realms_id'] : null;
+            if ($realmId !== null && $realmId <= 0) {
+                $realmId = null;
+            }
+            $all = Spell::getAllSpells();
+            $filtered = self::filterSpells($all, $userId, $realmId);
+
+            return isset($filtered[0]['id']) ? (int) $filtered[0]['id'] : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{memory: int, disk: int}
+     */
+    private static function getNodeAllocatedResources(int $nodeId): array
+    {
+        $servers = Server::getServersByNodeId($nodeId);
+        $memory = 0;
+        $disk = 0;
+        foreach ($servers as $server) {
+            $memory += (int) ($server['memory'] ?? 0);
+            $disk += (int) ($server['disk'] ?? 0);
+        }
+
+        return ['memory' => $memory, 'disk' => $disk];
     }
 }

@@ -104,6 +104,13 @@ class ServerCreationController
                 'disk' => SettingsHelper::getMinimumDisk(),
             ];
 
+            $placementResolvedDefaults = ServerCreationHelper::resolvePlacementDefaultsForForm(
+                $userId,
+                SettingsHelper::getPlacementFieldPolicies(),
+                SettingsHelper::getMinimumMemory(),
+                SettingsHelper::getMinimumDisk()
+            );
+
             return ApiResponse::success([
                 'locations' => array_values($locations),
                 'nodes' => array_values($nodes),
@@ -112,6 +119,9 @@ class ServerCreationController
                 'available_resources' => $availableResources,
                 'minimum_resources' => $minimumResources,
                 'resource_field_policies' => SettingsHelper::getResourceFieldPolicies(),
+                'placement_field_policies' => SettingsHelper::getPlacementFieldPolicies(),
+                'placement_resolved_defaults' => $placementResolvedDefaults,
+                'max_servers_per_node' => SettingsHelper::getMaxServersPerNode(),
             ], 'Options retrieved successfully', 200);
         } catch (\Exception $e) {
             App::getInstance(true)->getLogger()->error('Failed to get server creation options: ' . $e->getMessage());
@@ -289,6 +299,7 @@ class ServerCreationController
         }
 
         $data = SettingsHelper::applyResourceFieldPoliciesToPayload($data);
+        $data = SettingsHelper::applyPlacementFieldPoliciesToPayload($userId, $data);
 
         // Validate server creation
         $validation = ServerCreationHelper::validateServerCreation($userId, $data);
@@ -499,7 +510,7 @@ class ServerCreationController
         );
 
         // Only return safe fields for user selection
-        return [
+        $safe = [
             'id' => $node['id'] ?? null,
             'name' => $node['name'] ?? null,
             'description' => $node['description'] ?? null,
@@ -512,6 +523,24 @@ class ServerCreationController
             'created_at' => $node['created_at'] ?? null,
             'updated_at' => $node['updated_at'] ?? null,
         ];
+
+        if (array_key_exists('allowed', $node)) {
+            $safe['allowed'] = $node['allowed'];
+        }
+        if (array_key_exists('error_message', $node)) {
+            $safe['error_message'] = $node['error_message'];
+        }
+        if (array_key_exists('server_count', $node)) {
+            $safe['server_count'] = $node['server_count'];
+        }
+        if (array_key_exists('max_servers_per_node', $node)) {
+            $safe['max_servers_per_node'] = $node['max_servers_per_node'];
+        }
+        if (array_key_exists('at_capacity', $node)) {
+            $safe['at_capacity'] = $node['at_capacity'];
+        }
+
+        return $safe;
     }
 
     /**
