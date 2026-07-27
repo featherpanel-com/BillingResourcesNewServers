@@ -112,6 +112,8 @@ export interface ServerCreationOptions {
   >;
   /** 0 = unlimited */
   max_servers_per_node?: number;
+  /** Whether freemium create requires a linked Discord account */
+  require_discord_link?: boolean;
 }
 
 export interface CreateServerData {
@@ -138,10 +140,16 @@ export interface CreateServerData {
 export function useNewServerAPI() {
   const loading = ref(false);
   const error = ref<string | null>(null);
+  const errorCode = ref<string | null>(null);
 
   const handleError = (err: unknown): string => {
     if (axios.isAxiosError(err)) {
-      const axiosError = err as AxiosError<{ error_message?: string; message?: string }>;
+      const axiosError = err as AxiosError<{
+        error_message?: string;
+        message?: string;
+        error_code?: string;
+      }>;
+      errorCode.value = axiosError.response?.data?.error_code ?? null;
       return (
         axiosError.response?.data?.error_message ||
         axiosError.response?.data?.message ||
@@ -149,12 +157,14 @@ export function useNewServerAPI() {
         "An error occurred"
       );
     }
+    errorCode.value = null;
     return err instanceof Error ? err.message : "An unknown error occurred";
   };
 
   const getOptions = async (): Promise<ServerCreationOptions> => {
     loading.value = true;
     error.value = null;
+    errorCode.value = null;
     try {
       const response = await axios.get<ApiResponse<ServerCreationOptions>>(
         `/api/user/billingresourcesnewservers/options`
@@ -164,6 +174,7 @@ export function useNewServerAPI() {
         return response.data.data;
       }
 
+      errorCode.value = response.data?.error_code ?? null;
       throw new Error(
         response.data?.error_message || response.data?.message || "Invalid response format"
       );
@@ -241,6 +252,7 @@ export function useNewServerAPI() {
   const createServer = async (data: CreateServerData): Promise<any> => {
     loading.value = true;
     error.value = null;
+    errorCode.value = null;
     try {
       const response = await axios.post<ApiResponse<any>>(
         `/api/user/billingresourcesnewservers/servers`,
@@ -266,6 +278,7 @@ export function useNewServerAPI() {
   return {
     loading,
     error,
+    errorCode,
     getOptions,
     getSpellDetails,
     getAllocations,

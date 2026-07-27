@@ -56,6 +56,7 @@ class SettingsController
             content: new OA\JsonContent(
                 properties: [
                     new OA\Property(property: 'user_creation_enabled', type: 'boolean', description: 'Enable/disable user server creation'),
+                    new OA\Property(property: 'require_discord_link', type: 'boolean', description: 'Require linked Discord account for free-tier (freemium) server creation'),
                     new OA\Property(
                         property: 'allowed_locations',
                         type: 'array',
@@ -134,6 +135,12 @@ class SettingsController
         if (isset($data['user_creation_enabled'])) {
             $enabled = filter_var($data['user_creation_enabled'], FILTER_VALIDATE_BOOLEAN);
             SettingsHelper::setUserCreationEnabled($enabled);
+        }
+
+        // Update Discord link requirement for freemium server creation
+        if (isset($data['require_discord_link'])) {
+            $required = filter_var($data['require_discord_link'], FILTER_VALIDATE_BOOLEAN);
+            SettingsHelper::setDiscordLinkRequired($required);
         }
 
         // Update allowed locations

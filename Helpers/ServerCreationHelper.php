@@ -18,6 +18,7 @@
 namespace App\Addons\billingresourcesnewservers\Helpers;
 
 use App\Chat\Node;
+use App\Chat\User;
 use App\Chat\Realm;
 use App\Chat\Spell;
 use App\Chat\Server;
@@ -30,6 +31,28 @@ use App\Addons\billingresources\Helpers\ResourcesHelper;
  */
 class ServerCreationHelper
 {
+    /**
+     * When Discord linking is required for freemium create, verify the user has linked Discord.
+     *
+     * @return array{error: string, error_code: string}|null Null when the requirement is satisfied or disabled
+     */
+    public static function checkDiscordLinkRequirement(int $userId): ?array
+    {
+        if (!SettingsHelper::isDiscordLinkRequired()) {
+            return null;
+        }
+
+        $user = User::getUserById($userId);
+        if ($user && ($user['discord_oauth2_linked'] ?? 'false') === 'true') {
+            return null;
+        }
+
+        return [
+            'error' => 'You must link your Discord account before creating a free server',
+            'error_code' => 'DISCORD_LINK_REQUIRED',
+        ];
+    }
+
     /**
      * Validate server creation request and check resources.
      *
@@ -55,6 +78,15 @@ class ServerCreationHelper
                 'valid' => false,
                 'error' => 'You do not have permission to create servers',
                 'error_code' => 'USER_NOT_ALLOWED',
+            ];
+        }
+
+        $discordRequirement = self::checkDiscordLinkRequirement($userId);
+        if ($discordRequirement !== null) {
+            return [
+                'valid' => false,
+                'error' => $discordRequirement['error'],
+                'error_code' => $discordRequirement['error_code'],
             ];
         }
 

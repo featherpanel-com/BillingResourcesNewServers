@@ -230,6 +230,7 @@ const resourceFieldRows = [
 // Form state
 const formSettings = ref<PluginSettings>({
   user_creation_enabled: false,
+  require_discord_link: false,
   user_restriction_mode: "all",
   allowed_users: [],
   allowed_locations: [],
@@ -619,33 +620,69 @@ onMounted(async () => {
       >
         <!-- Enable/Disable User Creation -->
         <Card class="p-6 border-2 shadow-xl bg-card/50 backdrop-blur-sm">
-          <div class="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border/50">
-            <div class="space-y-1">
-              <Label class="text-base font-semibold"
-                >Enable User Server Creation</Label
+          <div class="space-y-4">
+            <div class="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border/50">
+              <div class="space-y-1">
+                <Label class="text-base font-semibold"
+                  >Enable User Server Creation</Label
+                >
+                <p class="text-sm text-muted-foreground">
+                  Allow users to create new servers using their available
+                  resources
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="formSettings.user_creation_enabled"
+                @click="formSettings.user_creation_enabled = !formSettings.user_creation_enabled"
+                :class="[
+                  'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background',
+                  formSettings.user_creation_enabled ? 'bg-primary' : 'bg-muted',
+                ]"
               >
-              <p class="text-sm text-muted-foreground">
-                Allow users to create new servers using their available
-                resources
-              </p>
+                <span
+                  class="pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform"
+                  :class="
+                    formSettings.user_creation_enabled ? 'translate-x-5' : 'translate-x-0.5'
+                  "
+                />
+              </button>
             </div>
-            <button
-              type="button"
-              role="switch"
-              :aria-checked="formSettings.user_creation_enabled"
-              @click="formSettings.user_creation_enabled = !formSettings.user_creation_enabled"
-              :class="[
-                'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background',
-                formSettings.user_creation_enabled ? 'bg-primary' : 'bg-muted',
-              ]"
-            >
-              <span
-                class="pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform"
-                :class="
-                  formSettings.user_creation_enabled ? 'translate-x-5' : 'translate-x-0.5'
+            <div class="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border/50">
+              <div class="space-y-1">
+                <Label class="text-base font-semibold"
+                  >Require Discord Account Linking</Label
+                >
+                <p class="text-sm text-muted-foreground">
+                  Users must link Discord before creating a free-tier
+                  (freemium) server. Requires Discord OAuth to be enabled in
+                  panel settings.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="!!formSettings.require_discord_link"
+                @click="
+                  formSettings.require_discord_link =
+                    !formSettings.require_discord_link
                 "
-              />
-            </button>
+                :class="[
+                  'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background',
+                  formSettings.require_discord_link ? 'bg-primary' : 'bg-muted',
+                ]"
+              >
+                <span
+                  class="pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform"
+                  :class="
+                    formSettings.require_discord_link
+                      ? 'translate-x-5'
+                      : 'translate-x-0.5'
+                  "
+                />
+              </button>
+            </div>
           </div>
         </Card>
 

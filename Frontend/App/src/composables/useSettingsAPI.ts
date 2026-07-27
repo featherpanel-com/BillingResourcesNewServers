@@ -39,6 +39,8 @@ export type PlacementFieldPolicies = Record<string, PlacementFieldPolicyRow>;
 
 export interface PluginSettings {
   user_creation_enabled: boolean;
+  /** Require linked Discord for freemium free-tier server creation */
+  require_discord_link?: boolean;
   user_restriction_mode?: "all" | "specific";
   allowed_users?: number[];
   allowed_locations: number[];
@@ -67,6 +69,7 @@ export interface PluginSettings {
 
 export interface UpdateSettingsData {
   user_creation_enabled?: boolean;
+  require_discord_link?: boolean;
   user_restriction_mode?: "all" | "specific";
   allowed_users?: number[];
   allowed_locations?: number[];

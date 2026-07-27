@@ -41,10 +41,14 @@ import {
 import { useToast } from "vue-toastification";
 
 const toast = useToast();
-const { loading, error, getOptions, getSpellDetails, createServer } =
+const { loading, error, errorCode, getOptions, getSpellDetails, createServer } =
   useNewServerAPI();
 
 const options = ref<ServerCreationOptions | null>(null);
+
+const linkDiscord = () => {
+  window.location.href = "/api/user/auth/discord/link";
+};
 
 const RF_KEYS = [
   "memory",
@@ -601,12 +605,21 @@ onMounted(() => {
         v-else-if="error"
         class="p-8 md:p-10 border-2 border-destructive/50 bg-destructive/5"
       >
-        <div class="flex items-center gap-3">
-          <AlertCircle class="h-6 w-6 text-destructive" />
-          <div>
-            <h3 class="font-semibold text-destructive">Error</h3>
-            <p class="text-sm text-muted-foreground">{{ error }}</p>
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex items-center gap-3">
+            <AlertCircle class="h-6 w-6 text-destructive shrink-0" />
+            <div>
+              <h3 class="font-semibold text-destructive">Error</h3>
+              <p class="text-sm text-muted-foreground">{{ error }}</p>
+            </div>
           </div>
+          <Button
+            v-if="errorCode === 'DISCORD_LINK_REQUIRED'"
+            type="button"
+            @click="linkDiscord"
+          >
+            Link Discord Account
+          </Button>
         </div>
       </Card>
 

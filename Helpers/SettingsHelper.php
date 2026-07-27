@@ -325,6 +325,28 @@ class SettingsHelper
     }
 
     /**
+     * Whether free-tier (freemium) server creation requires a linked Discord account.
+     *
+     * @return bool True if Discord linking is required
+     */
+    public static function isDiscordLinkRequired(): bool
+    {
+        $required = PluginSettings::getSetting('billingresourcesnewservers', 'require_discord_link');
+
+        return $required === 'true';
+    }
+
+    /**
+     * Set whether free-tier server creation requires a linked Discord account.
+     *
+     * @param bool $required Whether Discord linking is required
+     */
+    public static function setDiscordLinkRequired(bool $required): void
+    {
+        PluginSettings::setSetting('billingresourcesnewservers', 'require_discord_link', $required ? 'true' : 'false');
+    }
+
+    /**
      * Get allowed location IDs.
      *
      * @return array<int> Array of location IDs (empty array = all allowed)
@@ -905,6 +927,7 @@ class SettingsHelper
     {
         return [
             'user_creation_enabled' => self::isUserCreationEnabled(),
+            'require_discord_link' => self::isDiscordLinkRequired(),
             'user_restriction_mode' => self::getUserRestrictionMode(),
             'allowed_users' => self::getAllowedUsers(),
             'allowed_locations' => self::getAllowedLocations(),

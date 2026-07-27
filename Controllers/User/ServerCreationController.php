@@ -65,6 +65,11 @@ class ServerCreationController
             return ApiResponse::error('User server creation is currently disabled', 'USER_CREATION_DISABLED', 403);
         }
 
+        $discordRequirement = ServerCreationHelper::checkDiscordLinkRequirement($userId);
+        if ($discordRequirement !== null) {
+            return ApiResponse::error($discordRequirement['error'], $discordRequirement['error_code'], 403);
+        }
+
         try {
             // Get user ID for filtering
             $user = $request->get('user');
@@ -122,6 +127,7 @@ class ServerCreationController
                 'placement_field_policies' => SettingsHelper::getPlacementFieldPolicies(),
                 'placement_resolved_defaults' => $placementResolvedDefaults,
                 'max_servers_per_node' => SettingsHelper::getMaxServersPerNode(),
+                'require_discord_link' => SettingsHelper::isDiscordLinkRequired(),
             ], 'Options retrieved successfully', 200);
         } catch (\Exception $e) {
             App::getInstance(true)->getLogger()->error('Failed to get server creation options: ' . $e->getMessage());
@@ -158,6 +164,11 @@ class ServerCreationController
             }
 
             return ApiResponse::error('User server creation is currently disabled', 'USER_CREATION_DISABLED', 403);
+        }
+
+        $discordRequirement = ServerCreationHelper::checkDiscordLinkRequirement($userId);
+        if ($discordRequirement !== null) {
+            return ApiResponse::error($discordRequirement['error'], $discordRequirement['error_code'], 403);
         }
 
         try {

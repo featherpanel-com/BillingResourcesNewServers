@@ -13,6 +13,7 @@ Let users create new servers using resources from their account pool. Requires *
 - **Admin**
   - **Fremium Resources → New Server Settings**
   - Enable/configure self-service server creation
+  - Optionally require Discord account linking before free-tier server creation
   - Per-field policies for create form — default, fixed, or hidden resource fields (memory, CPU, disk, swap, IO, DB/backup/allocation limits)
   - Placement policies — location, node, realm, spell (with auto-select strategies)
   - **New Server Permissions** — per-user permissions, permission groups, resource-level access (open/restricted per location, node, realm, spell)
