@@ -28,7 +28,7 @@ import {
   CheckCircle2,
   ChevronsUpDown,
   Check,
-} from "lucide-vue-next";
+} from "@lucide/vue";
 import {
   useNewServerAPI,
   type Location as LocationType,

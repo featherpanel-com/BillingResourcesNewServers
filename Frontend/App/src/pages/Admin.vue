@@ -12,7 +12,7 @@ import {
   Box,
   Sparkles,
   Check,
-} from "lucide-vue-next";
+} from "@lucide/vue";
 import {
   useSettingsAPI,
   type PluginSettings,

@@ -17,13 +17,6 @@ import {
   CommandItem,
 } from "@/components/ui/command";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import {
@@ -41,7 +34,7 @@ import {
   X as XIcon,
   Info,
   AlertCircle,
-} from "lucide-vue-next";
+} from "@lucide/vue";
 import {
   useUserPermissionsAPI,
   type UserPermissionsData,
@@ -1413,21 +1406,16 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <!-- Add Permission Dialog -->
-              <Dialog
-                :open="showGroupPermissionsForm"
-                @update:open="(val) => (showGroupPermissionsForm = val)"
-              >
-                <DialogContent class="sm:max-w-[500px]">
-                  <DialogHeader>
-                    <DialogTitle>Add Permission</DialogTitle>
-                    <DialogDescription>
-                      Add a new permission to this group. Users in this group
-                      will inherit this permission.
-                    </DialogDescription>
-                  </DialogHeader>
-
-                  <div class="space-y-4 py-4">
+              <!-- Add Permission Form -->
+              <div v-if="showGroupPermissionsForm" class="border-t pt-6 mt-6">
+                <div class="mb-4">
+                  <h3 class="text-base font-semibold">Add Permission</h3>
+                  <p class="text-sm text-muted-foreground">
+                    Add a new permission to this group. Users in this group
+                    will inherit this permission.
+                  </p>
+                </div>
+                <div class="space-y-4 py-4">
                     <div class="space-y-2">
                       <Label for="resource-type">Resource Type</Label>
                       <select
@@ -1547,8 +1535,7 @@ onMounted(async () => {
                       Add Permission
                     </Button>
                   </div>
-                </DialogContent>
-              </Dialog>
+              </div>
             </Card>
 
             <!-- Group Permissions -->
