@@ -102,7 +102,8 @@ class Group
             $fields[] = 'name = :name';
             $params['name'] = $data['name'];
         }
-        if (isset($data['description'])) {
+        // array_key_exists so null can clear description (isset(null) is false)
+        if (array_key_exists('description', $data)) {
             $fields[] = 'description = :description';
             $params['description'] = $data['description'];
         }

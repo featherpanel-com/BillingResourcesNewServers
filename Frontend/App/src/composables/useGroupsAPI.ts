@@ -61,7 +61,8 @@ export interface CreateGroupData {
 
 export interface UpdateGroupData {
   name?: string;
-  description?: string;
+  /** null clears an existing description */
+  description?: string | null;
   color?: string;
   priority?: number;
 }

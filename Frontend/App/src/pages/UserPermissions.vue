@@ -465,10 +465,14 @@ const handleCreateGroup = async () => {
       color: groupFormColor.value || undefined,
       priority: groupFormPriority.value || 0,
     };
-    await createGroup(data);
-    toast.success("Group created successfully");
+    const created = await createGroup(data);
+    toast.success("Group created successfully — add permissions below");
     await loadGroups();
     resetGroupForm();
+    if (created?.id) {
+      await openEditGroupForm(created);
+      showGroupPermissionsForm.value = true;
+    }
   } catch (err) {
     toast.error(getApiErrorMessage(err, "Failed to create group"));
   }
@@ -481,9 +485,11 @@ const handleUpdateGroup = async () => {
   }
 
   try {
-    const data: CreateGroupData = {
+    // Always send description (null when blank) so clearing it persists.
+    // Using `|| undefined` omitted the field and left the old DB value.
+    const data = {
       name: groupFormName.value.trim(),
-      description: groupFormDescription.value.trim() || undefined,
+      description: groupFormDescription.value.trim() || null,
       color: groupFormColor.value || undefined,
       priority: groupFormPriority.value || 0,
     };
@@ -618,18 +624,28 @@ const resetGroupPermissionForm = () => {
   showGroupPermissionsForm.value = false;
 };
 
-const openEditGroupForm = (group: Group) => {
+const openEditGroupForm = async (group: Group) => {
+  showCreateGroupForm.value = false;
   editingGroupId.value = group.id;
   groupFormName.value = group.name;
   groupFormDescription.value = group.description || "";
   groupFormColor.value = group.color || "#3B82F6";
   groupFormPriority.value = group.priority || 0;
   showEditGroupForm.value = true;
+  // Load permissions panel — Edit previously only changed metadata.
+  await loadGroupDetails(group.id);
 };
 
 const selectGroup = async (group: Group) => {
   selectedGroup.value = null;
   await loadGroupDetails(group.id);
+  editingGroupId.value = group.id;
+  groupFormName.value = group.name;
+  groupFormDescription.value = group.description || "";
+  groupFormColor.value = group.color || "#3B82F6";
+  groupFormPriority.value = group.priority || 0;
+  showCreateGroupForm.value = false;
+  showEditGroupForm.value = true;
 };
 
 // Watch for when the user groups form opens to ensure data is loaded
@@ -653,9 +669,7 @@ onMounted(async () => {
   <div class="w-full h-full overflow-auto p-4 md:p-8 min-h-screen">
     <div class="container mx-auto max-w-6xl">
       <div class="mb-6 text-center md:text-left">
-        <h1
-          class="text-3xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent"
-        >
+        <h1 class="text-3xl font-bold text-foreground">
           Permissions Management
         </h1>
         <p class="text-muted-foreground mt-2">
@@ -1168,8 +1182,8 @@ onMounted(async () => {
               <div>
                 <h2 class="text-lg font-semibold">Groups</h2>
                 <p class="text-sm text-muted-foreground">
-                  Create and manage groups to assign permissions to multiple
-                  users at once
+                  Create groups, then assign location / node / realm / spell
+                  permissions. Users in a group inherit those permissions.
                 </p>
               </div>
               <Button @click="showCreateGroupForm = !showCreateGroupForm">
@@ -1293,14 +1307,156 @@ onMounted(async () => {
                   </div>
                 </div>
 
-                <div class="flex gap-2">
-                  <Button @click="handleUpdateGroup" class="flex-1">
+                <div class="flex flex-wrap gap-2">
+                  <Button @click="handleUpdateGroup" class="flex-1 min-w-[8rem]">
                     Update Group
+                  </Button>
+                  <Button
+                    variant="outline"
+                    @click="showGroupPermissionsForm = !showGroupPermissionsForm"
+                  >
+                    <Plus class="mr-2 h-4 w-4" />
+                    Add Permission
                   </Button>
                   <Button variant="outline" @click="resetGroupForm">
                     Cancel
                   </Button>
                 </div>
+                <p class="text-xs text-muted-foreground">
+                  Use Add Permission to grant locations, nodes, realms, or
+                  spells. Members inherit those permissions.
+                </p>
+              </div>
+            </div>
+
+            <!-- Add Permission Form (inline under edit / after create) -->
+            <div
+              v-if="selectedGroup && showGroupPermissionsForm"
+              class="border-t pt-6 mt-6"
+            >
+              <div class="mb-4">
+                <h3 class="text-base font-semibold">
+                  Add Permission to {{ selectedGroup.name }}
+                </h3>
+                <p class="text-sm text-muted-foreground">
+                  Users in this group will inherit this permission.
+                </p>
+              </div>
+              <div class="space-y-4 py-4">
+                <div class="space-y-2">
+                  <Label for="group-resource-type">Resource Type</Label>
+                  <select
+                    id="group-resource-type"
+                    v-model="groupPermissionResourceType"
+                    class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="location">Location</option>
+                    <option value="node">Node</option>
+                    <option value="realm">Realm</option>
+                    <option value="spell">Spell</option>
+                  </select>
+                </div>
+
+                <div class="space-y-2">
+                  <Label>Resource</Label>
+                  <Popover v-model:open="groupPermissionOpen">
+                    <PopoverTrigger as-child>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        :aria-expanded="groupPermissionOpen"
+                        class="w-full justify-between"
+                        :disabled="filteredGroupResources.length === 0"
+                      >
+                        {{
+                          groupPermissionResourceId
+                            ? getResourceName(
+                                groupPermissionResourceType,
+                                groupPermissionResourceId
+                              )
+                            : filteredGroupResources.length === 0
+                              ? `No ${groupPermissionResourceType}s available`
+                              : "Select resource..."
+                        }}
+                        <ChevronsUpDown
+                          class="ml-2 h-4 w-4 shrink-0 opacity-50"
+                        />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent class="w-[400px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search resources..." />
+                        <CommandEmpty>No resource found.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem
+                            v-for="resource in filteredGroupResources"
+                            :key="resource.id"
+                            :value="`${resource.name} ${
+                              resource.description || ''
+                            }`"
+                            @select="
+                              () => {
+                                groupPermissionResourceId = resource.id;
+                                groupPermissionOpen = false;
+                              }
+                            "
+                          >
+                            <Check
+                              :class="
+                                cn(
+                                  'mr-2 h-4 w-4',
+                                  groupPermissionResourceId === resource.id
+                                    ? 'opacity-100'
+                                    : 'opacity-0'
+                                )
+                              "
+                            />
+                            <div>
+                              <div class="font-medium">
+                                {{ resource.name }}
+                              </div>
+                              <div
+                                v-if="
+                                  resource.description &&
+                                  resource.description !== resource.name
+                                "
+                                class="text-xs text-muted-foreground"
+                              >
+                                {{ resource.description }}
+                              </div>
+                            </div>
+                          </CommandItem>
+                        </CommandGroup>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  <p
+                    v-if="filteredGroupResources.length === 0"
+                    class="text-xs text-muted-foreground"
+                  >
+                    No {{ groupPermissionResourceType }}s available.
+                  </p>
+                </div>
+
+                <div class="space-y-2">
+                  <Label for="group_custom_error"
+                    >Custom Error Message (Optional)</Label
+                  >
+                  <Input
+                    id="group_custom_error"
+                    v-model="groupPermissionCustomError"
+                    placeholder="Custom error message when access is denied"
+                  />
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-2">
+                <Button variant="outline" @click="resetGroupPermissionForm">
+                  Cancel
+                </Button>
+                <Button @click="handleAddGroupPermission">
+                  Add Permission
+                </Button>
               </div>
             </div>
 
@@ -1405,137 +1561,10 @@ onMounted(async () => {
                   </Button>
                 </div>
               </div>
-
-              <!-- Add Permission Form -->
-              <div v-if="showGroupPermissionsForm" class="border-t pt-6 mt-6">
-                <div class="mb-4">
-                  <h3 class="text-base font-semibold">Add Permission</h3>
-                  <p class="text-sm text-muted-foreground">
-                    Add a new permission to this group. Users in this group
-                    will inherit this permission.
-                  </p>
-                </div>
-                <div class="space-y-4 py-4">
-                    <div class="space-y-2">
-                      <Label for="resource-type">Resource Type</Label>
-                      <select
-                        id="resource-type"
-                        v-model="groupPermissionResourceType"
-                        class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      >
-                        <option value="location">Location</option>
-                        <option value="node">Node</option>
-                        <option value="realm">Realm</option>
-                        <option value="spell">Spell</option>
-                      </select>
-                    </div>
-
-                    <div class="space-y-2">
-                      <Label>Resource</Label>
-                      <Popover v-model:open="groupPermissionOpen">
-                        <PopoverTrigger as-child>
-                          <Button
-                            variant="outline"
-                            role="combobox"
-                            :aria-expanded="groupPermissionOpen"
-                            class="w-full justify-between"
-                            :disabled="filteredGroupResources.length === 0"
-                          >
-                            {{
-                              groupPermissionResourceId
-                                ? getResourceName(
-                                    groupPermissionResourceType,
-                                    groupPermissionResourceId
-                                  )
-                                : filteredGroupResources.length === 0
-                                ? `No ${groupPermissionResourceType}s available`
-                                : "Select resource..."
-                            }}
-                            <ChevronsUpDown
-                              class="ml-2 h-4 w-4 shrink-0 opacity-50"
-                            />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent class="w-[400px] p-0">
-                          <Command>
-                            <CommandInput placeholder="Search resources..." />
-                            <CommandEmpty>No resource found.</CommandEmpty>
-                            <CommandGroup>
-                              <CommandItem
-                                v-for="resource in filteredGroupResources"
-                                :key="resource.id"
-                                :value="`${resource.name} ${
-                                  resource.description || ''
-                                }`"
-                                @select="
-                                  () => {
-                                    groupPermissionResourceId = resource.id;
-                                    groupPermissionOpen = false;
-                                  }
-                                "
-                              >
-                                <Check
-                                  :class="
-                                    cn(
-                                      'mr-2 h-4 w-4',
-                                      groupPermissionResourceId === resource.id
-                                        ? 'opacity-100'
-                                        : 'opacity-0'
-                                    )
-                                  "
-                                />
-                                <div>
-                                  <div class="font-medium">
-                                    {{ resource.name }}
-                                  </div>
-                                  <div
-                                    v-if="
-                                      resource.description &&
-                                      resource.description !== resource.name
-                                    "
-                                    class="text-xs text-muted-foreground"
-                                  >
-                                    {{ resource.description }}
-                                  </div>
-                                </div>
-                              </CommandItem>
-                            </CommandGroup>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
-                      <p
-                        v-if="filteredGroupResources.length === 0"
-                        class="text-xs text-muted-foreground"
-                      >
-                        No {{ groupPermissionResourceType }}s available. Please
-                        load resources first.
-                      </p>
-                    </div>
-
-                    <div class="space-y-2">
-                      <Label for="group_custom_error"
-                        >Custom Error Message (Optional)</Label
-                      >
-                      <Input
-                        id="group_custom_error"
-                        v-model="groupPermissionCustomError"
-                        placeholder="Custom error message to show when user tries to use this resource"
-                      />
-                      <p class="text-xs text-muted-foreground">
-                        Leave empty to use default error message
-                      </p>
-                    </div>
-                  </div>
-
-                  <div class="flex justify-end gap-2">
-                    <Button variant="outline" @click="resetGroupPermissionForm">
-                      Cancel
-                    </Button>
-                    <Button @click="handleAddGroupPermission">
-                      Add Permission
-                    </Button>
-                  </div>
-              </div>
+              <p class="text-sm text-muted-foreground">
+                Current permissions for this group. Use Add Permission above to
+                grant access to locations, nodes, realms, or spells.
+              </p>
             </Card>
 
             <!-- Group Permissions -->
@@ -1547,14 +1576,14 @@ onMounted(async () => {
                   <h3 class="text-lg font-semibold">Location Permissions</h3>
                 </div>
                 <div
-                  v-if="selectedGroup.permissions.locations.length === 0"
+                  v-if="!(selectedGroup.permissions?.locations?.length)"
                   class="text-sm text-muted-foreground py-4"
                 >
                   No location permissions
                 </div>
                 <div v-else class="space-y-2">
                   <div
-                    v-for="perm in selectedGroup.permissions.locations"
+                    v-for="perm in selectedGroup.permissions?.locations || []"
                     :key="perm.id"
                     class="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors"
                   >
@@ -1639,14 +1668,14 @@ onMounted(async () => {
                   <h3 class="text-lg font-semibold">Node Permissions</h3>
                 </div>
                 <div
-                  v-if="selectedGroup.permissions.nodes.length === 0"
+                  v-if="!(selectedGroup.permissions?.nodes?.length)"
                   class="text-sm text-muted-foreground py-4"
                 >
                   No node permissions
                 </div>
                 <div v-else class="space-y-2">
                   <div
-                    v-for="perm in selectedGroup.permissions.nodes"
+                    v-for="perm in selectedGroup.permissions?.nodes || []"
                     :key="perm.id"
                     class="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors"
                   >
@@ -1728,14 +1757,14 @@ onMounted(async () => {
                   <h3 class="text-lg font-semibold">Realm Permissions</h3>
                 </div>
                 <div
-                  v-if="selectedGroup.permissions.realms.length === 0"
+                  v-if="!(selectedGroup.permissions?.realms?.length)"
                   class="text-sm text-muted-foreground py-4"
                 >
                   No realm permissions
                 </div>
                 <div v-else class="space-y-2">
                   <div
-                    v-for="perm in selectedGroup.permissions.realms"
+                    v-for="perm in selectedGroup.permissions?.realms || []"
                     :key="perm.id"
                     class="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors"
                   >
@@ -1817,14 +1846,14 @@ onMounted(async () => {
                   <h3 class="text-lg font-semibold">Spell Permissions</h3>
                 </div>
                 <div
-                  v-if="selectedGroup.permissions.spells.length === 0"
+                  v-if="!(selectedGroup.permissions?.spells?.length)"
                   class="text-sm text-muted-foreground py-4"
                 >
                   No spell permissions
                 </div>
                 <div v-else class="space-y-2">
                   <div
-                    v-for="perm in selectedGroup.permissions.spells"
+                    v-for="perm in selectedGroup.permissions?.spells || []"
                     :key="perm.id"
                     class="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors"
                   >

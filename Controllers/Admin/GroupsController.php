@@ -158,8 +158,17 @@ class GroupsController
         if (isset($data['name'])) {
             $updateData['name'] = trim($data['name']);
         }
-        if (isset($data['description'])) {
-            $updateData['description'] = $data['description'];
+        // array_key_exists: isset() is false for null, which blocked clearing description
+        if (array_key_exists('description', $data)) {
+            $description = $data['description'];
+            if ($description === null || $description === '') {
+                $updateData['description'] = null;
+            } elseif (is_string($description)) {
+                $trimmed = trim($description);
+                $updateData['description'] = $trimmed === '' ? null : $trimmed;
+            } else {
+                return ApiResponse::error('Invalid description', 'INVALID_DESCRIPTION', 400);
+            }
         }
         if (isset($data['color'])) {
             $updateData['color'] = $data['color'];
